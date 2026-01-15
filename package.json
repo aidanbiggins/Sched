@@ -1,0 +1,53 @@
+{
+  "name": "sched",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "test": "jest",
+    "test:ci": "jest --watchAll=false",
+    "scheduler:sync": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/sync-worker.ts",
+    "scheduler:sync:once": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/sync-worker.ts --once",
+    "scheduler:webhook:process": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/webhook-processor.ts",
+    "scheduler:webhook:process:once": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/webhook-processor.ts --once",
+    "scheduler:reconcile": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/reconcile-worker.ts",
+    "scheduler:reconcile:once": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/reconcile-worker.ts --once",
+    "scheduler:webhook:replay": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/webhook-replay.ts",
+    "seed": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/seed-test-data.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@tailwindcss/postcss": "^4.1.18",
+    "@types/node": "^25.0.7",
+    "@types/react": "^19.2.8",
+    "@types/react-dom": "^19.2.3",
+    "autoprefixer": "^10.4.23",
+    "luxon": "^3.7.2",
+    "next": "^14.2.35",
+    "postcss": "^8.5.6",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwindcss": "^4.1.18",
+    "typescript": "^5.9.3",
+    "uuid": "^13.0.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.1",
+    "@types/jest": "^30.0.0",
+    "@types/luxon": "^3.7.1",
+    "@types/uuid": "^10.0.0",
+    "eslint": "^9.39.2",
+    "eslint-config-next": "^16.1.1",
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0",
+    "ts-jest": "^29.4.6",
+    "ts-node": "^10.9.2"
+  }
+}

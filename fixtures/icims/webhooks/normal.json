@@ -1,0 +1,13 @@
+{
+  "eventId": "evt-001-normal",
+  "eventType": "application.status_changed",
+  "timestamp": "2026-01-14T10:00:00.000Z",
+  "data": {
+    "applicationId": "APP-12345",
+    "candidateEmail": "candidate@example.com",
+    "candidateName": "Jane Doe",
+    "requisitionId": "REQ-001",
+    "previousStatus": "Applied",
+    "newStatus": "Interview"
+  }
+}

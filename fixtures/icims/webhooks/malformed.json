@@ -1,0 +1,4 @@
+{
+  "eventType": "unknown.event",
+  "_note": "Missing eventId, missing data - should still be stored but may fail processing"
+}

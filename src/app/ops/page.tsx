@@ -1,0 +1,607 @@
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
+
+// Types
+interface HealthStatus {
+  status: 'healthy' | 'degraded' | 'critical';
+  timestamp: string;
+  webhooks: {
+    last24h: {
+      received: number;
+      processing: number;
+      processed: number;
+      failed: number;
+    };
+  };
+  reconciliation: {
+    pending: number;
+    processing: number;
+    completed: number;
+    failed: number;
+    requiresAttention: number;
+  };
+  requests: {
+    byStatus: Record<string, number>;
+    needsAttention: number;
+  };
+}
+
+interface WebhookEvent {
+  id: string;
+  eventType: string;
+  eventId: string;
+  status: string;
+  verified: boolean;
+  attempts: number;
+  maxAttempts: number;
+  lastError: string | null;
+  createdAt: string;
+}
+
+interface ReconciliationJob {
+  id: string;
+  jobType: string;
+  entityType: string;
+  entityId: string;
+  status: string;
+  attempts: number;
+  maxAttempts: number;
+  lastError: string | null;
+  detectionReason: string;
+  createdAt: string;
+}
+
+interface AttentionRequest {
+  id: string;
+  candidateName: string;
+  candidateEmail: string;
+  reqTitle: string;
+  status: string;
+  needsAttentionReason: string | null;
+  createdAt: string;
+}
+
+type Tab = 'overview' | 'webhooks' | 'reconciliation' | 'attention';
+
+export default function OpsPage() {
+  const [activeTab, setActiveTab] = useState<Tab>('overview');
+  const [health, setHealth] = useState<HealthStatus | null>(null);
+  const [webhooks, setWebhooks] = useState<WebhookEvent[]>([]);
+  const [reconciliationJobs, setReconciliationJobs] = useState<ReconciliationJob[]>([]);
+  const [attentionRequests, setAttentionRequests] = useState<AttentionRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+
+  // Fetch health data
+  const fetchHealth = useCallback(async () => {
+    try {
+      const res = await fetch('/api/ops/health');
+      if (!res.ok) throw new Error('Failed to fetch health');
+      const data = await res.json();
+      setHealth(data);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    }
+  }, []);
+
+  // Fetch webhooks
+  const fetchWebhooks = useCallback(async () => {
+    try {
+      const res = await fetch('/api/ops/webhooks?limit=50');
+      if (!res.ok) throw new Error('Failed to fetch webhooks');
+      const data = await res.json();
+      setWebhooks(data.events);
+    } catch (err) {
+      console.error('Error fetching webhooks:', err);
+    }
+  }, []);
+
+  // Fetch reconciliation jobs
+  const fetchReconciliation = useCallback(async () => {
+    try {
+      const res = await fetch('/api/ops/reconciliation?limit=50');
+      if (!res.ok) throw new Error('Failed to fetch reconciliation');
+      const data = await res.json();
+      setReconciliationJobs(data.jobs);
+    } catch (err) {
+      console.error('Error fetching reconciliation:', err);
+    }
+  }, []);
+
+  // Fetch attention requests
+  const fetchAttention = useCallback(async () => {
+    try {
+      const res = await fetch('/api/ops/attention?limit=50');
+      if (!res.ok) throw new Error('Failed to fetch attention');
+      const data = await res.json();
+      setAttentionRequests(data.requests);
+    } catch (err) {
+      console.error('Error fetching attention:', err);
+    }
+  }, []);
+
+  // Dismiss attention
+  const dismissAttention = async (id: string, reason?: string) => {
+    try {
+      const res = await fetch(`/api/ops/attention/${id}/dismiss`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      });
+      if (!res.ok) throw new Error('Failed to dismiss');
+      fetchAttention();
+      fetchHealth();
+    } catch (err) {
+      console.error('Error dismissing attention:', err);
+    }
+  };
+
+  // Initial load
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      await Promise.all([
+        fetchHealth(),
+        fetchWebhooks(),
+        fetchReconciliation(),
+        fetchAttention(),
+      ]);
+      setLoading(false);
+    };
+    load();
+  }, [fetchHealth, fetchWebhooks, fetchReconciliation, fetchAttention]);
+
+  // Auto-refresh
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const interval = setInterval(() => {
+      fetchHealth();
+      if (activeTab === 'webhooks') fetchWebhooks();
+      if (activeTab === 'reconciliation') fetchReconciliation();
+      if (activeTab === 'attention') fetchAttention();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [autoRefresh, activeTab, fetchHealth, fetchWebhooks, fetchReconciliation, fetchAttention]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block w-8 h-8 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-slate-400 mt-2">Loading operator dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-900 text-slate-100">
+      {/* Header */}
+      <header className="bg-slate-800 border-b border-slate-700">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Link href="/coordinator" className="text-slate-400 hover:text-slate-200">
+              ← Coordinator
+            </Link>
+            <h1 className="text-xl font-semibold">Operator Health Dashboard</h1>
+          </div>
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-sm text-slate-400">
+              <input
+                type="checkbox"
+                checked={autoRefresh}
+                onChange={(e) => setAutoRefresh(e.target.checked)}
+                className="rounded bg-slate-700 border-slate-600"
+              />
+              Auto-refresh
+            </label>
+            <span className="text-sm text-slate-500">
+              Last updated: {health?.timestamp ? new Date(health.timestamp).toLocaleTimeString() : '--'}
+            </span>
+          </div>
+        </div>
+      </header>
+
+      {/* Status Banner */}
+      {health && (
+        <div
+          className={`px-4 py-2 text-center text-sm font-medium ${
+            health.status === 'healthy'
+              ? 'bg-emerald-900/50 text-emerald-300'
+              : health.status === 'degraded'
+              ? 'bg-amber-900/50 text-amber-300'
+              : 'bg-red-900/50 text-red-300'
+          }`}
+        >
+          System Status: {health.status.toUpperCase()}
+          {health.status !== 'healthy' && (
+            <span className="ml-2">
+              ({health.requests.needsAttention} requests need attention,{' '}
+              {health.webhooks.last24h.failed} webhook failures,{' '}
+              {health.reconciliation.failed} reconciliation failures)
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div className="border-b border-slate-700">
+        <div className="max-w-7xl mx-auto px-4">
+          <nav className="flex gap-1">
+            {(['overview', 'webhooks', 'reconciliation', 'attention'] as Tab[]).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === tab
+                    ? 'border-cyan-500 text-cyan-400'
+                    : 'border-transparent text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {tab.charAt(0).toUpperCase() + tab.slice(1)}
+                {tab === 'attention' && health && health.requests.needsAttention > 0 && (
+                  <span className="ml-2 px-1.5 py-0.5 text-xs bg-red-500/30 text-red-300 rounded">
+                    {health.requests.needsAttention}
+                  </span>
+                )}
+              </button>
+            ))}
+          </nav>
+        </div>
+      </div>
+
+      {/* Content */}
+      <main className="max-w-7xl mx-auto px-4 py-6">
+        {error && (
+          <div className="mb-4 p-4 bg-red-900/30 border border-red-700 rounded text-red-300">
+            {error}
+          </div>
+        )}
+
+        {activeTab === 'overview' && health && <OverviewTab health={health} />}
+        {activeTab === 'webhooks' && <WebhooksTab webhooks={webhooks} />}
+        {activeTab === 'reconciliation' && <ReconciliationTab jobs={reconciliationJobs} />}
+        {activeTab === 'attention' && (
+          <AttentionTab requests={attentionRequests} onDismiss={dismissAttention} />
+        )}
+      </main>
+    </div>
+  );
+}
+
+// Overview Tab
+function OverviewTab({ health }: { health: HealthStatus }) {
+  return (
+    <div className="space-y-6">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <SummaryCard
+          title="Webhooks (24h)"
+          value={health.webhooks.last24h.received}
+          subtitle={`${health.webhooks.last24h.processed} processed, ${health.webhooks.last24h.failed} failed`}
+          status={health.webhooks.last24h.failed > 0 ? 'warning' : 'ok'}
+        />
+        <SummaryCard
+          title="Reconciliation"
+          value={health.reconciliation.pending}
+          subtitle={`${health.reconciliation.completed} completed, ${health.reconciliation.failed} failed`}
+          status={health.reconciliation.failed > 0 ? 'warning' : 'ok'}
+        />
+        <SummaryCard
+          title="Needs Attention"
+          value={health.requests.needsAttention}
+          subtitle="Requests requiring operator action"
+          status={health.requests.needsAttention > 0 ? 'critical' : 'ok'}
+        />
+        <SummaryCard
+          title="Request Status"
+          value={Object.values(health.requests.byStatus).reduce((a, b) => a + b, 0)}
+          subtitle={`${health.requests.byStatus.pending || 0} pending, ${health.requests.byStatus.booked || 0} booked`}
+          status="ok"
+        />
+      </div>
+
+      {/* Webhook Stats */}
+      <div className="bg-slate-800 rounded-lg p-6">
+        <h3 className="text-lg font-medium mb-4">Webhook Events (Last 24h)</h3>
+        <div className="grid grid-cols-4 gap-4">
+          <div className="text-center">
+            <div className="text-2xl font-bold text-slate-100">{health.webhooks.last24h.received}</div>
+            <div className="text-sm text-slate-400">Received</div>
+          </div>
+          <div className="text-center">
+            <div className="text-2xl font-bold text-blue-400">{health.webhooks.last24h.processing}</div>
+            <div className="text-sm text-slate-400">Processing</div>
+          </div>
+          <div className="text-center">
+            <div className="text-2xl font-bold text-emerald-400">{health.webhooks.last24h.processed}</div>
+            <div className="text-sm text-slate-400">Processed</div>
+          </div>
+          <div className="text-center">
+            <div className="text-2xl font-bold text-red-400">{health.webhooks.last24h.failed}</div>
+            <div className="text-sm text-slate-400">Failed</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Reconciliation Stats */}
+      <div className="bg-slate-800 rounded-lg p-6">
+        <h3 className="text-lg font-medium mb-4">Reconciliation Jobs</h3>
+        <div className="grid grid-cols-5 gap-4">
+          <div className="text-center">
+            <div className="text-2xl font-bold text-amber-400">{health.reconciliation.pending}</div>
+            <div className="text-sm text-slate-400">Pending</div>
+          </div>
+          <div className="text-center">
+            <div className="text-2xl font-bold text-blue-400">{health.reconciliation.processing}</div>
+            <div className="text-sm text-slate-400">Processing</div>
+          </div>
+          <div className="text-center">
+            <div className="text-2xl font-bold text-emerald-400">{health.reconciliation.completed}</div>
+            <div className="text-sm text-slate-400">Completed</div>
+          </div>
+          <div className="text-center">
+            <div className="text-2xl font-bold text-red-400">{health.reconciliation.failed}</div>
+            <div className="text-sm text-slate-400">Failed</div>
+          </div>
+          <div className="text-center">
+            <div className="text-2xl font-bold text-orange-400">{health.reconciliation.requiresAttention}</div>
+            <div className="text-sm text-slate-400">Needs Attention</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Summary Card Component
+function SummaryCard({
+  title,
+  value,
+  subtitle,
+  status,
+}: {
+  title: string;
+  value: number;
+  subtitle: string;
+  status: 'ok' | 'warning' | 'critical';
+}) {
+  const borderColor = {
+    ok: 'border-slate-700',
+    warning: 'border-amber-700',
+    critical: 'border-red-700',
+  }[status];
+
+  return (
+    <div className={`bg-slate-800 rounded-lg p-4 border-l-4 ${borderColor}`}>
+      <h4 className="text-sm font-medium text-slate-400">{title}</h4>
+      <div className="text-3xl font-bold mt-1">{value}</div>
+      <div className="text-xs text-slate-500 mt-1">{subtitle}</div>
+    </div>
+  );
+}
+
+// Webhooks Tab
+function WebhooksTab({ webhooks }: { webhooks: WebhookEvent[] }) {
+  return (
+    <div className="bg-slate-800 rounded-lg overflow-hidden">
+      <div className="px-4 py-3 border-b border-slate-700">
+        <h3 className="font-medium">Recent Webhook Events</h3>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead className="bg-slate-700/50 text-left text-sm">
+            <tr>
+              <th className="px-4 py-2">Event Type</th>
+              <th className="px-4 py-2">Event ID</th>
+              <th className="px-4 py-2">Status</th>
+              <th className="px-4 py-2">Verified</th>
+              <th className="px-4 py-2">Attempts</th>
+              <th className="px-4 py-2">Error</th>
+              <th className="px-4 py-2">Created</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-700">
+            {webhooks.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                  No webhook events
+                </td>
+              </tr>
+            ) : (
+              webhooks.map((event) => (
+                <tr key={event.id} className="hover:bg-slate-700/30">
+                  <td className="px-4 py-2 font-mono text-sm">{event.eventType}</td>
+                  <td className="px-4 py-2 font-mono text-xs text-slate-400">{event.eventId}</td>
+                  <td className="px-4 py-2">
+                    <StatusBadge status={event.status} />
+                  </td>
+                  <td className="px-4 py-2">
+                    {event.verified ? (
+                      <span className="text-emerald-400">✓</span>
+                    ) : (
+                      <span className="text-red-400">✗</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2 text-sm">
+                    {event.attempts}/{event.maxAttempts}
+                  </td>
+                  <td className="px-4 py-2 text-xs text-red-400 max-w-xs truncate">
+                    {event.lastError || '-'}
+                  </td>
+                  <td className="px-4 py-2 text-sm text-slate-400">
+                    {new Date(event.createdAt).toLocaleString()}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// Reconciliation Tab
+function ReconciliationTab({ jobs }: { jobs: ReconciliationJob[] }) {
+  return (
+    <div className="bg-slate-800 rounded-lg overflow-hidden">
+      <div className="px-4 py-3 border-b border-slate-700">
+        <h3 className="font-medium">Reconciliation Jobs</h3>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead className="bg-slate-700/50 text-left text-sm">
+            <tr>
+              <th className="px-4 py-2">Job Type</th>
+              <th className="px-4 py-2">Entity</th>
+              <th className="px-4 py-2">Status</th>
+              <th className="px-4 py-2">Attempts</th>
+              <th className="px-4 py-2">Reason</th>
+              <th className="px-4 py-2">Error</th>
+              <th className="px-4 py-2">Created</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-700">
+            {jobs.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                  No reconciliation jobs
+                </td>
+              </tr>
+            ) : (
+              jobs.map((job) => (
+                <tr key={job.id} className="hover:bg-slate-700/30">
+                  <td className="px-4 py-2">
+                    <span className="font-mono text-sm">{job.jobType}</span>
+                  </td>
+                  <td className="px-4 py-2 text-xs">
+                    <span className="text-slate-400">{job.entityType}</span>
+                    <br />
+                    <span className="font-mono text-slate-500">{job.entityId.slice(0, 8)}...</span>
+                  </td>
+                  <td className="px-4 py-2">
+                    <StatusBadge status={job.status} />
+                  </td>
+                  <td className="px-4 py-2 text-sm">
+                    {job.attempts}/{job.maxAttempts}
+                  </td>
+                  <td className="px-4 py-2 text-xs max-w-xs truncate text-slate-400">
+                    {job.detectionReason}
+                  </td>
+                  <td className="px-4 py-2 text-xs text-red-400 max-w-xs truncate">
+                    {job.lastError || '-'}
+                  </td>
+                  <td className="px-4 py-2 text-sm text-slate-400">
+                    {new Date(job.createdAt).toLocaleString()}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// Attention Tab
+function AttentionTab({
+  requests,
+  onDismiss,
+}: {
+  requests: AttentionRequest[];
+  onDismiss: (id: string, reason?: string) => void;
+}) {
+  return (
+    <div className="bg-slate-800 rounded-lg overflow-hidden">
+      <div className="px-4 py-3 border-b border-slate-700">
+        <h3 className="font-medium">Requests Needing Attention</h3>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full">
+          <thead className="bg-slate-700/50 text-left text-sm">
+            <tr>
+              <th className="px-4 py-2">Candidate</th>
+              <th className="px-4 py-2">Position</th>
+              <th className="px-4 py-2">Status</th>
+              <th className="px-4 py-2">Reason</th>
+              <th className="px-4 py-2">Created</th>
+              <th className="px-4 py-2">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-700">
+            {requests.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                  No requests need attention
+                </td>
+              </tr>
+            ) : (
+              requests.map((req) => (
+                <tr key={req.id} className="hover:bg-slate-700/30">
+                  <td className="px-4 py-2">
+                    <div className="font-medium">{req.candidateName}</div>
+                    <div className="text-xs text-slate-400">{req.candidateEmail}</div>
+                  </td>
+                  <td className="px-4 py-2">{req.reqTitle}</td>
+                  <td className="px-4 py-2">
+                    <StatusBadge status={req.status} />
+                  </td>
+                  <td className="px-4 py-2 text-sm text-amber-400 max-w-xs">
+                    {req.needsAttentionReason}
+                  </td>
+                  <td className="px-4 py-2 text-sm text-slate-400">
+                    {new Date(req.createdAt).toLocaleString()}
+                  </td>
+                  <td className="px-4 py-2">
+                    <div className="flex gap-2">
+                      <Link
+                        href={`/coordinator/${req.id}`}
+                        className="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded"
+                      >
+                        View
+                      </Link>
+                      <button
+                        onClick={() => onDismiss(req.id, 'Resolved by operator')}
+                        className="px-2 py-1 text-xs bg-amber-700/50 hover:bg-amber-700 text-amber-200 rounded"
+                      >
+                        Dismiss
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// Status Badge Component
+function StatusBadge({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    received: 'bg-blue-500/20 text-blue-300',
+    processing: 'bg-yellow-500/20 text-yellow-300',
+    processed: 'bg-emerald-500/20 text-emerald-300',
+    completed: 'bg-emerald-500/20 text-emerald-300',
+    failed: 'bg-red-500/20 text-red-300',
+    pending: 'bg-slate-500/20 text-slate-300',
+    requires_attention: 'bg-orange-500/20 text-orange-300',
+    booked: 'bg-emerald-500/20 text-emerald-300',
+    cancelled: 'bg-slate-500/20 text-slate-300',
+    expired: 'bg-slate-500/20 text-slate-300',
+  };
+
+  return (
+    <span className={`px-2 py-0.5 rounded text-xs font-medium ${colors[status] || 'bg-slate-600 text-slate-300'}`}>
+      {status}
+    </span>
+  );
+}
