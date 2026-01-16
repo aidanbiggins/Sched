@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 
 // Types
@@ -81,6 +82,14 @@ function CoordinatorLoadingFallback() {
 function CoordinatorDashboard() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { data: session, status: sessionStatus } = useSession();
+
+  // Redirect to signin if not authenticated
+  useEffect(() => {
+    if (sessionStatus === 'unauthenticated') {
+      router.push('/signin');
+    }
+  }, [sessionStatus, router]);
 
   // State from URL params
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'all');
@@ -278,6 +287,16 @@ function CoordinatorDashboard() {
 
   const hasActiveFilters = search || ageRange || needsSync || interviewerEmail;
 
+  // Show loading while checking authentication
+  if (sessionStatus === 'loading') {
+    return <CoordinatorLoadingFallback />;
+  }
+
+  // Don't render if not authenticated (redirect happens in useEffect)
+  if (!session) {
+    return <CoordinatorLoadingFallback />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-50">
       {/* Header */}
@@ -292,12 +311,29 @@ function CoordinatorDashboard() {
                 Manage interview scheduling requests
               </p>
             </div>
-            <button
-              onClick={() => setShowForm(true)}
-              className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors shadow-sm"
-            >
-              + New Request
-            </button>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => setShowForm(true)}
+                className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors shadow-sm"
+              >
+                + New Request
+              </button>
+              <div className="flex items-center gap-3 pl-4 border-l border-slate-200">
+                <Link
+                  href="/settings"
+                  className="text-sm text-slate-600 hover:text-slate-900 transition-colors"
+                >
+                  Settings
+                </Link>
+                {session.user?.image && (
+                  <img
+                    src={session.user.image}
+                    alt=""
+                    className="w-8 h-8 rounded-full"
+                  />
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </header>

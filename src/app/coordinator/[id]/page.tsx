@@ -34,6 +34,13 @@ interface SyncJob {
   updatedAt?: string;
 }
 
+interface AttendeeResponse {
+  email: string;
+  displayName?: string;
+  responseStatus: 'needsAction' | 'declined' | 'tentative' | 'accepted';
+  isOrganizer: boolean;
+}
+
 interface RequestDetail {
   request: {
     id: string;
@@ -85,10 +92,36 @@ export default function RequestDetailPage({
   const [showReschedule, setShowReschedule] = useState(false);
   const [showCancel, setShowCancel] = useState(false);
   const [retryingSync, setRetryingSync] = useState(false);
+  const [attendeeResponses, setAttendeeResponses] = useState<AttendeeResponse[]>([]);
+  const [loadingAttendees, setLoadingAttendees] = useState(false);
 
   useEffect(() => {
     fetchDetail();
   }, [resolvedParams.id]);
+
+  // Fetch attendee responses when we have a booking with a calendar event
+  useEffect(() => {
+    if (data?.booking?.calendarEventId) {
+      fetchAttendeeResponses();
+    }
+  }, [data?.booking?.calendarEventId]);
+
+  async function fetchAttendeeResponses() {
+    if (!data?.booking?.calendarEventId) return;
+
+    setLoadingAttendees(true);
+    try {
+      const res = await fetch(`/api/scheduling-requests/${resolvedParams.id}/attendees`);
+      if (res.ok) {
+        const responseData = await res.json();
+        setAttendeeResponses(responseData.attendees || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch attendee responses:', err);
+    } finally {
+      setLoadingAttendees(false);
+    }
+  }
 
   async function fetchDetail() {
     try {
@@ -339,27 +372,32 @@ export default function RequestDetailPage({
                   </div>
                 </div>
 
-                {/* Public Link */}
-                {request.status === 'pending' && (
+                {/* Public Link - show for all active statuses */}
+                {['pending', 'booked', 'rescheduled'].includes(request.status) && (
                   <div className="mt-6 p-4 bg-indigo-50 border border-indigo-100 rounded-lg">
                     <label className="text-xs font-medium text-indigo-700 uppercase tracking-wider">
-                      Public Booking Link
+                      {request.status === 'pending' ? 'Candidate Booking Link' : 'Candidate Reschedule Link'}
                     </label>
-                    <div className="flex items-center gap-2 mt-2">
+                    <p className="text-xs text-indigo-600 mt-1 mb-2">
+                      {request.status === 'pending'
+                        ? 'Send this link to the candidate to book their interview slot'
+                        : 'The candidate can use this link to reschedule if needed'}
+                    </p>
+                    <div className="flex items-center gap-2">
                       <input
                         type="text"
                         readOnly
                         value={publicLink}
-                        className="flex-1 px-3 py-2 border border-slate-200 rounded text-sm bg-white font-mono"
+                        className="flex-1 px-3 py-2 border border-slate-200 rounded text-sm bg-white font-mono text-xs"
                       />
                       <button
                         onClick={() => {
                           navigator.clipboard.writeText(publicLink);
-                          alert('Link copied!');
+                          alert('Link copied to clipboard!');
                         }}
-                        className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded hover:bg-indigo-700"
+                        className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded hover:bg-indigo-700 whitespace-nowrap"
                       >
-                        Copy
+                        Copy Link
                       </button>
                     </div>
                   </div>
@@ -423,6 +461,66 @@ export default function RequestDetailPage({
                       </div>
                     )}
                   </div>
+
+                  {/* Attendee Responses */}
+                  {booking.calendarEventId && (
+                    <div className="mt-6 pt-4 border-t border-slate-100">
+                      <div className="flex items-center justify-between mb-3">
+                        <label className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+                          Attendee Responses
+                        </label>
+                        <button
+                          onClick={() => fetchAttendeeResponses()}
+                          disabled={loadingAttendees}
+                          className="text-xs text-indigo-600 hover:text-indigo-800 font-medium disabled:opacity-50"
+                        >
+                          {loadingAttendees ? 'Refreshing...' : 'Refresh'}
+                        </button>
+                      </div>
+                      {loadingAttendees && attendeeResponses.length === 0 ? (
+                        <p className="text-sm text-slate-500">Loading responses...</p>
+                      ) : attendeeResponses.length > 0 ? (
+                        <div className="space-y-2">
+                          {attendeeResponses
+                            .filter((a) => !a.isOrganizer) // Hide organizer - they don't have meaningful response status
+                            .map((attendee) => {
+                              // Determine role: candidate or interviewer
+                              const isCandidate = attendee.email.toLowerCase() === data?.request?.candidateEmail?.toLowerCase();
+                              const role = isCandidate ? 'Candidate' : 'Interviewer';
+
+                              return (
+                                <div
+                                  key={attendee.email}
+                                  className="flex items-center justify-between py-1"
+                                >
+                                  <span className="text-sm text-slate-700">
+                                    {attendee.displayName || attendee.email}
+                                    <span className="ml-1 text-xs text-slate-400">({role})</span>
+                                  </span>
+                                  <span
+                                    className={`px-2 py-0.5 text-xs font-medium rounded-full ${
+                                      attendee.responseStatus === 'accepted'
+                                        ? 'bg-green-100 text-green-800'
+                                        : attendee.responseStatus === 'declined'
+                                        ? 'bg-red-100 text-red-800'
+                                        : attendee.responseStatus === 'tentative'
+                                        ? 'bg-yellow-100 text-yellow-800'
+                                        : 'bg-slate-100 text-slate-600'
+                                    }`}
+                                  >
+                                    {attendee.responseStatus === 'needsAction'
+                                      ? 'No response'
+                                      : attendee.responseStatus}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-slate-500">No attendee data available</p>
+                      )}
+                    </div>
+                  )}
 
                   {booking.status !== 'cancelled' && (
                     <div className="mt-6 pt-4 border-t border-slate-100 flex gap-3">

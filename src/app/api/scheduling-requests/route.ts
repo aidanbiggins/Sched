@@ -16,8 +16,14 @@
  * POST - Create a new scheduling request (v2)
  */
 
+// Force dynamic rendering - disable Next.js route caching
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth/authOptions';
 import { getSchedulingService } from '@/lib/scheduling';
 import {
   createAuditLog,
@@ -33,10 +39,18 @@ import { AuditLog } from '@/types/scheduling';
 
 export async function GET(request: NextRequest) {
   try {
+    // Check authentication
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
 
-    // Parse filters from query params
-    const filters: SchedulingRequestFilters = {};
+    // Parse filters from query params - scope to current user
+    const filters: SchedulingRequestFilters = {
+      createdBy: session.user.id,
+    };
 
     const statusParam = searchParams.get('status');
     if (statusParam) {
@@ -115,8 +129,8 @@ export async function GET(request: NextRequest) {
       })
     );
 
-    // Get counts for all statuses (for tabs)
-    const counts = await getSchedulingRequestCounts();
+    // Get counts for all statuses (for tabs) - scoped to current user
+    const counts = await getSchedulingRequestCounts(session.user.id);
 
     return NextResponse.json({
       requests: enrichedRequests,
@@ -139,10 +153,16 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    // Check authentication
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
     const body = await request.json();
 
-    // Validate required fields per v2 spec
-    const requiredFields = ['icimsApplicationId', 'candidateEmail', 'interviewerEmail'];
+    // In standalone mode, only candidateEmail and interviewerEmail are required
+    const requiredFields = ['candidateEmail', 'interviewerEmail'];
     for (const field of requiredFields) {
       if (!body[field]) {
         return NextResponse.json(
@@ -152,22 +172,22 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Map v2 API body to internal input format
+    // Map request body to internal input format
     const input = {
-      applicationId: body.icimsApplicationId,
+      applicationId: body.icimsApplicationId || null,
       candidateName: body.candidateName || body.candidateEmail.split('@')[0],
       candidateEmail: body.candidateEmail,
       reqTitle: body.reqTitle || 'Interview',
       interviewType: body.interviewType || 'phone_screen' as const,
       durationMinutes: body.durationMinutes || 60,
-      interviewerEmails: [body.interviewerEmail],
+      interviewerEmails: Array.isArray(body.interviewerEmail) ? body.interviewerEmail : [body.interviewerEmail],
       windowStart: body.windowStart || new Date().toISOString(),
       windowEnd: body.windowEnd || new Date(Date.now() + (body.windowDays || 14) * 24 * 60 * 60 * 1000).toISOString(),
       candidateTimezone: body.candidateTimezone || 'America/New_York',
     };
 
     const service = getSchedulingService();
-    const result = await service.createRequest(input);
+    const result = await service.createRequest(input, session.user.id);
 
     // Return v2 response format
     return NextResponse.json(

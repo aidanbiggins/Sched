@@ -17,6 +17,7 @@ import {
   BookSlotOutput,
   AvailableSlot,
   CreateEventPayload,
+  InterviewerAvailability,
 } from '@/types/scheduling';
 import {
   createSchedulingRequest as dbCreateRequest,
@@ -41,8 +42,18 @@ import {
   generateAvailableSlots,
   findSlotById,
 } from './SlotGenerationService';
+import { isAtsEnabled, isStandaloneMode } from '@/lib/config';
+import { getCalendarClient, CalendarClient, FreeBusyResponse } from '@/lib/calendar';
 
 const DEFAULT_ORGANIZER_EMAIL = process.env.GRAPH_ORGANIZER_EMAIL || 'scheduling@example.com';
+
+// Default working hours for standalone mode (9am-5pm local time, Mon-Fri)
+const DEFAULT_WORKING_HOURS = {
+  start: '09:00',
+  end: '17:00',
+  timeZone: 'America/New_York',
+  daysOfWeek: [1, 2, 3, 4, 5], // Mon-Fri
+};
 
 export class SchedulingService {
   private graphClient: GraphCalendarClient;
@@ -57,6 +68,185 @@ export class SchedulingService {
     this.graphClient = graphClient || getGraphCalendarClient();
     this.icimsClient = icimsClient || getIcimsClient();
     this.writebackService = writebackService || getIcimsWritebackService();
+  }
+
+  /**
+   * Get interviewer availability using either personal calendar or enterprise Graph
+   */
+  private async getInterviewerAvailability(
+    interviewerEmails: string[],
+    windowStart: Date,
+    windowEnd: Date,
+    createdByUserId: string | null
+  ): Promise<InterviewerAvailability[]> {
+    // In standalone mode, use the creator's personal calendar
+    if (isStandaloneMode() && createdByUserId) {
+      try {
+        const calendarClient = await getCalendarClient(createdByUserId);
+        const freeBusyResponses = await calendarClient.getFreeBusy({
+          emails: interviewerEmails,
+          startTime: windowStart,
+          endTime: windowEnd,
+        });
+
+        // Convert FreeBusyResponse to InterviewerAvailability
+        return freeBusyResponses.map((response) => ({
+          email: response.email,
+          busyIntervals: response.busyIntervals.map((interval) => ({
+            start: interval.start,
+            end: interval.end,
+            status: 'busy' as const,
+            isPrivate: false,
+          })),
+          workingHours: DEFAULT_WORKING_HOURS,
+        }));
+      } catch (error) {
+        console.error('Error fetching availability from personal calendar:', error);
+        throw new Error('Could not fetch calendar availability. Please ensure your calendar is connected.');
+      }
+    }
+
+    // Enterprise mode: use Graph API
+    return this.graphClient.getSchedule(
+      interviewerEmails,
+      windowStart,
+      windowEnd,
+      15
+    );
+  }
+
+  /**
+   * Create a calendar event using either personal calendar or enterprise Graph
+   */
+  private async createCalendarEvent(
+    request: SchedulingRequest,
+    slot: AvailableSlot
+  ): Promise<{ eventId: string; iCalUId: string | null; joinUrl: string | null }> {
+    // In standalone mode, use the creator's personal calendar
+    if (isStandaloneMode() && request.createdBy) {
+      try {
+        const calendarClient = await getCalendarClient(request.createdBy);
+
+        const attendees = [
+          {
+            email: request.candidateEmail,
+            displayName: request.candidateName,
+          },
+          ...request.interviewerEmails.map((email) => ({
+            email,
+            displayName: email.split('@')[0],
+          })),
+        ];
+
+        const description = `
+Interview: ${request.candidateName} for ${request.reqTitle}
+
+Interview Type: ${request.interviewType}
+Duration: ${request.durationMinutes} minutes
+${request.applicationId ? `Application ID: ${request.applicationId}` : ''}
+
+This interview was scheduled via Sched.
+        `.trim();
+
+        const event = await calendarClient.createEvent({
+          summary: `Interview: ${request.candidateName} for ${request.reqTitle}`,
+          description,
+          start: slot.start,
+          end: slot.end,
+          timeZone: request.candidateTimezone,
+          attendees,
+          conferenceData: true,
+        });
+
+        return {
+          eventId: event.id,
+          iCalUId: event.iCalUid,
+          joinUrl: event.conferenceLink,
+        };
+      } catch (error) {
+        console.error('Error creating event via personal calendar:', error);
+        throw new Error('Could not create calendar event. Please ensure your calendar is connected.');
+      }
+    }
+
+    // Enterprise mode: use Graph API
+    const eventPayload = this.buildEventPayload(request, slot);
+    const createdEvent = await this.graphClient.createEvent(
+      request.organizerEmail,
+      eventPayload
+    );
+
+    return {
+      eventId: createdEvent.eventId,
+      iCalUId: createdEvent.iCalUId,
+      joinUrl: createdEvent.joinUrl,
+    };
+  }
+
+  /**
+   * Update a calendar event using either personal calendar or enterprise Graph
+   */
+  private async updateCalendarEvent(
+    request: SchedulingRequest,
+    eventId: string,
+    newStart: Date,
+    newEnd: Date,
+    timeZone: string
+  ): Promise<void> {
+    // In standalone mode, use the creator's personal calendar
+    if (isStandaloneMode() && request.createdBy) {
+      try {
+        const calendarClient = await getCalendarClient(request.createdBy);
+        await calendarClient.updateEvent(eventId, {
+          start: newStart,
+          end: newEnd,
+          timeZone,
+        });
+        return;
+      } catch (error) {
+        console.error('Error updating event via personal calendar:', error);
+        throw new Error('Could not update calendar event. Please ensure your calendar is connected.');
+      }
+    }
+
+    // Enterprise mode: use Graph API
+    await this.graphClient.updateEvent(
+      request.organizerEmail,
+      eventId,
+      {
+        start: newStart,
+        end: newEnd,
+        timeZone,
+      }
+    );
+  }
+
+  /**
+   * Cancel a calendar event using either personal calendar or enterprise Graph
+   */
+  private async cancelCalendarEvent(
+    request: SchedulingRequest,
+    eventId: string,
+    cancelMessage?: string
+  ): Promise<void> {
+    // In standalone mode, use the creator's personal calendar
+    if (isStandaloneMode() && request.createdBy) {
+      try {
+        const calendarClient = await getCalendarClient(request.createdBy);
+        await calendarClient.deleteEvent(eventId, true);
+        return;
+      } catch (error) {
+        console.error('Error canceling event via personal calendar:', error);
+        throw new Error('Could not cancel calendar event. Please ensure your calendar is connected.');
+      }
+    }
+
+    // Enterprise mode: use Graph API
+    await this.graphClient.cancelEvent(
+      request.organizerEmail,
+      eventId,
+      cancelMessage
+    );
   }
 
   /**
@@ -108,19 +298,21 @@ export class SchedulingService {
 
     const publicLink = this.getPublicLink(token);
 
-    // Write iCIMS note (failures don't block the main flow)
-    await this.writebackService.writeLinkCreatedNote({
-      schedulingRequestId: id,
-      applicationId: input.applicationId || null,
-      publicLink,
-      interviewerEmails: input.interviewerEmails,
-      organizerEmail: DEFAULT_ORGANIZER_EMAIL,
-      interviewType: input.interviewType,
-      durationMinutes: input.durationMinutes,
-      windowStart: new Date(input.windowStart),
-      windowEnd: new Date(input.windowEnd),
-      candidateTimezone: input.candidateTimezone,
-    });
+    // Write iCIMS note (only in enterprise mode, failures don't block)
+    if (isAtsEnabled()) {
+      await this.writebackService.writeLinkCreatedNote({
+        schedulingRequestId: id,
+        applicationId: input.applicationId || null,
+        publicLink,
+        interviewerEmails: input.interviewerEmails,
+        organizerEmail: DEFAULT_ORGANIZER_EMAIL,
+        interviewType: input.interviewType,
+        durationMinutes: input.durationMinutes,
+        windowStart: new Date(input.windowStart),
+        windowEnd: new Date(input.windowEnd),
+        candidateTimezone: input.candidateTimezone,
+      });
+    }
 
     return {
       requestId: id,
@@ -150,12 +342,12 @@ export class SchedulingService {
       throw new Error('Scheduling link has expired');
     }
 
-    // Fetch busy intervals from Graph
-    const availability = await this.graphClient.getSchedule(
+    // Fetch availability using the appropriate calendar client
+    const availability = await this.getInterviewerAvailability(
       request.interviewerEmails,
       request.windowStart,
       request.windowEnd,
-      15
+      request.createdBy
     );
 
     // Get existing bookings for collision detection
@@ -213,11 +405,11 @@ export class SchedulingService {
     }
 
     // Re-fetch availability to ensure slot is still valid
-    const availability = await this.graphClient.getSchedule(
+    const availability = await this.getInterviewerAvailability(
       request.interviewerEmails,
       request.windowStart,
       request.windowEnd,
-      15
+      request.createdBy
     );
 
     const existingBookings = await getBookingsInTimeRange(
@@ -233,12 +425,8 @@ export class SchedulingService {
       throw new Error('Selected slot is no longer available');
     }
 
-    // Create calendar event
-    const eventPayload = this.buildEventPayload(request, selectedSlot);
-    const createdEvent = await this.graphClient.createEvent(
-      request.organizerEmail,
-      eventPayload
-    );
+    // Create calendar event using the appropriate client
+    const createdEvent = await this.createCalendarEvent(request, selectedSlot);
 
     // Create booking record
     const bookingId = uuidv4();
@@ -275,19 +463,21 @@ export class SchedulingService {
       conferenceJoinUrl: createdEvent.joinUrl,
     });
 
-    // Write iCIMS note (failures don't block the main flow)
-    await this.writebackService.writeBookedNote({
-      schedulingRequestId: request.id,
-      bookingId,
-      applicationId: request.applicationId,
-      interviewerEmails: request.interviewerEmails,
-      organizerEmail: request.organizerEmail,
-      scheduledStartUtc: booking.scheduledStart,
-      scheduledEndUtc: booking.scheduledEnd,
-      candidateTimezone: request.candidateTimezone,
-      calendarEventId: booking.calendarEventId,
-      joinUrl: booking.conferenceJoinUrl,
-    });
+    // Write iCIMS note (only in enterprise mode, failures don't block)
+    if (isAtsEnabled()) {
+      await this.writebackService.writeBookedNote({
+        schedulingRequestId: request.id,
+        bookingId,
+        applicationId: request.applicationId,
+        interviewerEmails: request.interviewerEmails,
+        organizerEmail: request.organizerEmail,
+        scheduledStartUtc: booking.scheduledStart,
+        scheduledEndUtc: booking.scheduledEnd,
+        candidateTimezone: request.candidateTimezone,
+        calendarEventId: booking.calendarEventId,
+        joinUrl: booking.conferenceJoinUrl,
+      });
+    }
 
     return {
       success: true,
@@ -353,11 +543,11 @@ export class SchedulingService {
     }
 
     // Validate the slot is actually available by checking availability
-    const availability = await this.graphClient.getSchedule(
+    const availability = await this.getInterviewerAvailability(
       request.interviewerEmails,
       request.windowStart,
       request.windowEnd,
-      15
+      request.createdBy
     );
 
     // Get existing bookings but exclude the current booking
@@ -386,21 +576,13 @@ export class SchedulingService {
     // Update calendar event
     if (booking.calendarEventId) {
       try {
-        await this.graphClient.updateEvent(
-          request.organizerEmail,
-          booking.calendarEventId,
-          {
-            start: newSlotStartAtUtc,
-            end: newEnd,
-            timeZone: tz,
-          }
-        );
-      } catch (graphError) {
+        await this.updateCalendarEvent(request, booking.calendarEventId, newSlotStartAtUtc, newEnd, tz);
+      } catch (calendarError) {
         await this.logAction('rescheduled', requestId, booking.id, 'system', null, {
-          error: graphError instanceof Error ? graphError.message : 'Unknown Graph error',
-          graphUpdateFailed: true,
+          error: calendarError instanceof Error ? calendarError.message : 'Unknown calendar error',
+          calendarUpdateFailed: true,
         });
-        throw new Error(`Failed to update calendar event: ${graphError instanceof Error ? graphError.message : 'Unknown error'}`);
+        throw new Error(`Failed to update calendar event: ${calendarError instanceof Error ? calendarError.message : 'Unknown error'}`);
       }
     }
 
@@ -423,21 +605,23 @@ export class SchedulingService {
       reason,
     });
 
-    // Write iCIMS note (failures don't block the main flow)
-    await this.writebackService.writeRescheduledNote({
-      schedulingRequestId: requestId,
-      bookingId: booking.id,
-      applicationId: request.applicationId,
-      interviewerEmails: request.interviewerEmails,
-      organizerEmail: request.organizerEmail,
-      oldStartUtc: oldStart,
-      oldEndUtc: oldEnd,
-      newStartUtc: newSlotStartAtUtc,
-      newEndUtc: newEnd,
-      candidateTimezone: tz,
-      calendarEventId: booking.calendarEventId,
-      reason: reason || null,
-    });
+    // Write iCIMS note (only in enterprise mode, failures don't block)
+    if (isAtsEnabled()) {
+      await this.writebackService.writeRescheduledNote({
+        schedulingRequestId: requestId,
+        bookingId: booking.id,
+        applicationId: request.applicationId,
+        interviewerEmails: request.interviewerEmails,
+        organizerEmail: request.organizerEmail,
+        oldStartUtc: oldStart,
+        oldEndUtc: oldEnd,
+        newStartUtc: newSlotStartAtUtc,
+        newEndUtc: newEnd,
+        candidateTimezone: tz,
+        calendarEventId: booking.calendarEventId,
+        reason: reason || null,
+      });
+    }
 
     return {
       status: 'rescheduled',
@@ -468,7 +652,8 @@ export class SchedulingService {
       throw new Error('Request is already cancelled');
     }
 
-    if (request.status !== 'pending' && request.status !== 'booked') {
+    // Allow cancellation for pending, booked, or rescheduled requests
+    if (request.status !== 'pending' && request.status !== 'booked' && request.status !== 'rescheduled') {
       throw new Error(`Cannot cancel request with status: ${request.status}`);
     }
 
@@ -484,18 +669,14 @@ export class SchedulingService {
         : undefined;
 
       try {
-        await this.graphClient.cancelEvent(
-          request.organizerEmail,
-          booking.calendarEventId,
-          cancelMessage
-        );
-      } catch (graphError) {
-        // Log failure but don't block if Graph fails
+        await this.cancelCalendarEvent(request, booking.calendarEventId, cancelMessage);
+      } catch (calendarError) {
+        // Log failure but don't block if calendar fails
         await this.logAction('cancelled', requestId, booking?.id || null, 'system', null, {
-          error: graphError instanceof Error ? graphError.message : 'Unknown Graph error',
-          graphCancelFailed: true,
+          error: calendarError instanceof Error ? calendarError.message : 'Unknown calendar error',
+          calendarCancelFailed: true,
         });
-        throw new Error(`Failed to cancel calendar event: ${graphError instanceof Error ? graphError.message : 'Unknown error'}`);
+        throw new Error(`Failed to cancel calendar event: ${calendarError instanceof Error ? calendarError.message : 'Unknown error'}`);
       }
 
       // Update booking status
@@ -517,16 +698,18 @@ export class SchedulingService {
       previousStatus: request.status,
     });
 
-    // Write iCIMS note (failures don't block the main flow)
-    await this.writebackService.writeCancelledNote({
-      schedulingRequestId: requestId,
-      bookingId: booking?.id || null,
-      applicationId: request.applicationId,
-      interviewerEmails: request.interviewerEmails,
-      organizerEmail: request.organizerEmail,
-      reason,
-      cancelledBy: actorId || 'coordinator',
-    });
+    // Write iCIMS note (only in enterprise mode, failures don't block)
+    if (isAtsEnabled()) {
+      await this.writebackService.writeCancelledNote({
+        schedulingRequestId: requestId,
+        bookingId: booking?.id || null,
+        applicationId: request.applicationId,
+        interviewerEmails: request.interviewerEmails,
+        organizerEmail: request.organizerEmail,
+        reason,
+        cancelledBy: actorId || 'coordinator',
+      });
+    }
 
     return { status: 'cancelled', cancelledAt, calendarEventId };
   }
@@ -549,12 +732,12 @@ export class SchedulingService {
       throw new Error('No booking found for this request');
     }
 
-    // Fetch busy intervals from Graph
-    const availability = await this.graphClient.getSchedule(
+    // Fetch availability using the appropriate calendar client
+    const availability = await this.getInterviewerAvailability(
       request.interviewerEmails,
       request.windowStart,
       request.windowEnd,
-      15
+      request.createdBy
     );
 
     // Get existing bookings but exclude the current booking

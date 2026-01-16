@@ -4,6 +4,10 @@
  * GET - Get a scheduling request by ID with timeline and sync status
  */
 
+// Force dynamic rendering - disable Next.js route caching
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 import { NextRequest, NextResponse } from 'next/server';
 import { getSchedulingService } from '@/lib/scheduling';
 import {
@@ -22,8 +26,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const resolvedParams = params instanceof Promise ? await params : params;
     const { id } = resolvedParams;
 
+    console.log(`[API] GET /api/scheduling-requests/${id} - fetching fresh data`);
+
     const service = getSchedulingService();
     const schedulingRequest = await service.getRequest(id);
+
+    console.log(`[API] Request ${id} status: ${schedulingRequest?.status}`);
 
     if (!schedulingRequest) {
       return NextResponse.json(
@@ -81,7 +89,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     const ageMs = Date.now() - schedulingRequest.createdAt.getTime();
     const ageDays = Math.floor(ageMs / (24 * 60 * 60 * 1000));
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       request: {
         id: schedulingRequest.id,
         applicationId: schedulingRequest.applicationId,
@@ -115,6 +123,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       timeline,
       syncStatus,
     });
+
+    // Add cache-control headers to prevent any caching
+    response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    response.headers.set('Pragma', 'no-cache');
+    response.headers.set('Expires', '0');
+
+    return response;
   } catch (error) {
     console.error('Error getting scheduling request:', error);
     return NextResponse.json(

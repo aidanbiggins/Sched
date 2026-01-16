@@ -1,4 +1,4 @@
-# Operator Runbook (M6)
+# Operator Runbook (M6+)
 
 This document provides operational guidance for managing the Interview Scheduling system.
 
@@ -8,6 +8,39 @@ The scheduling system integrates with:
 - **Microsoft Graph** - Calendar event creation and management
 - **iCIMS** - Application notes and status updates
 - **Webhooks** - Inbound events from iCIMS
+- **Google OAuth** - User authentication
+
+## Authentication & Authorization
+
+### Roles
+
+| Role | Description | Access |
+|------|-------------|--------|
+| **Superadmin** | System administrator (env-configured) | All features, /ops dashboard |
+| **Org Admin** | Organization administrator | Org settings, member management, all org features |
+| **Member** | Regular organization member | Scheduling features, own requests |
+| **Public** | Unauthenticated users | Public booking pages only |
+
+### Superadmin Configuration
+
+Superadmin access is controlled via environment variable:
+
+```bash
+# .env
+SUPERADMIN_EMAILS=aidanbiggins@gmail.com,admin@company.com
+```
+
+- Comma-separated list of email addresses
+- Case-insensitive matching
+- No database storage (revoke by removing from env)
+- Requires server restart to take effect
+
+### Organization Access
+
+Users must belong to at least one organization to access scheduling features:
+- New users are prompted to create or join an organization
+- Users with multiple organizations can switch between them via the org switcher
+- All scheduling data is scoped to the active organization
 
 ### Worker Processes
 
@@ -136,6 +169,18 @@ Reconciliation filtering:
 - `jobType` - Filter by job type
 
 ## Environment Variables
+
+### Authentication
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NEXTAUTH_URL` | (required) | Base URL of the application |
+| `NEXTAUTH_SECRET` | (required) | Secret for JWT signing |
+| `GOOGLE_CLIENT_ID` | (required) | Google OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | (required) | Google OAuth client secret |
+| `SUPERADMIN_EMAILS` | aidanbiggins@gmail.com | Comma-separated superadmin emails |
+
+### Integration
 
 | Variable | Default | Description |
 |----------|---------|-------------|

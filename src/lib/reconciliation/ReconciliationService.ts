@@ -293,7 +293,7 @@ export class ReconciliationService {
     } else if (job.entityType === 'booking') {
       // For bookings, we escalate the parent request
       const booking = await getBookingById(job.entityId);
-      if (booking) {
+      if (booking && booking.requestId) {
         await updateRequest(booking.requestId, {
           needsAttention: true,
           needsAttentionReason: `Booking reconciliation failed: ${reason}`,

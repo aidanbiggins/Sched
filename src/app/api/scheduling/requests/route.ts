@@ -6,12 +6,20 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth/authOptions';
 import { getSchedulingService } from '@/lib/scheduling';
 import { getAllSchedulingRequests } from '@/lib/db';
 import { CreateSchedulingRequestInput } from '@/types/scheduling';
 
 export async function POST(request: NextRequest) {
   try {
+    // Check authentication
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
     const body = await request.json();
 
     // Validate required fields
@@ -59,7 +67,7 @@ export async function POST(request: NextRequest) {
     };
 
     const service = getSchedulingService();
-    const result = await service.createRequest(input);
+    const result = await service.createRequest(input, session.user.id);
 
     return NextResponse.json(result, { status: 201 });
   } catch (error) {

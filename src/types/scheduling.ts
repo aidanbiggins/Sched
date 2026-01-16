@@ -134,7 +134,8 @@ export interface SchedulingRequest {
  */
 export interface Booking {
   id: string;
-  requestId: string;
+  requestId: string | null;                // FK to scheduling_requests
+  availabilityRequestId?: string | null;   // FK to availability_requests (optional)
 
   // Scheduled time
   scheduledStart: Date;
@@ -165,7 +166,8 @@ export interface Booking {
  */
 export interface AuditLog {
   id: string;
-  requestId: string | null;
+  requestId: string | null;               // FK to scheduling_requests
+  availabilityRequestId?: string | null;  // FK to availability_requests (optional)
   bookingId: string | null;
 
   action: AuditAction;
@@ -375,4 +377,138 @@ export interface RescheduleInput {
 export interface CancelInput {
   reason: string;
   notifyParticipants: boolean;
+}
+
+// ============================================
+// Availability Request Types (Candidate Provides Availability Mode)
+// ============================================
+
+export type AvailabilityRequestStatus =
+  | 'pending'      // Link sent, waiting for candidate
+  | 'submitted'    // Candidate submitted availability
+  | 'booked'       // Coordinator booked from suggestions
+  | 'cancelled'    // Request cancelled
+  | 'expired';     // Deadline passed
+
+/**
+ * AvailabilityRequest - Request for candidate to provide their availability
+ * This is the "candidate first" mode where they provide windows, then coordinator matches.
+ */
+export interface AvailabilityRequest {
+  id: string;
+
+  // Context (from iCIMS or manual entry)
+  applicationId: string | null; // iCIMS application ID
+  candidateName: string;
+  candidateEmail: string;
+  reqId: string | null;
+  reqTitle: string;
+  interviewType: InterviewType;
+  durationMinutes: number;
+
+  // Interviewers to match against
+  interviewerEmails: string[];
+
+  // Calendar linkage
+  organizerEmail: string;
+  calendarProvider: CalendarProvider;
+  graphTenantId: string | null;
+
+  // Request window - how far out candidate can provide availability
+  windowStart: Date;
+  windowEnd: Date;
+
+  // Public link
+  publicToken: string;
+  publicTokenHash: string;
+  expiresAt: Date; // Deadline for candidate to submit
+
+  // Candidate's timezone (set when they submit)
+  candidateTimezone: string | null;
+
+  // Status
+  status: AvailabilityRequestStatus;
+
+  // Minimum requirements
+  minTotalMinutes: number; // Minimum total availability required (default 180 = 3 hours)
+  minBlocks: number;       // Minimum number of blocks required (default 5)
+
+  // Audit
+  createdBy: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * CandidateAvailabilityBlock - A time block when candidate is available
+ */
+export interface CandidateAvailabilityBlock {
+  id: string;
+  availabilityRequestId: string;
+
+  // Time range (always in UTC)
+  startAt: Date;
+  endAt: Date;
+
+  // Metadata
+  createdAt: Date;
+}
+
+/**
+ * AvailabilitySuggestion - A suggested time slot that matches candidate and interviewers
+ */
+export interface AvailabilitySuggestion {
+  startAt: Date;
+  endAt: Date;
+  interviewerEmails: string[];
+  score: number;        // Higher is better
+  rationale: string;    // e.g., "All interviewers available, earliest slot"
+}
+
+// ============================================
+// Availability Request API Types
+// ============================================
+
+export interface CreateAvailabilityRequestInput {
+  applicationId?: string;
+  candidateName: string;
+  candidateEmail: string;
+  reqId?: string;
+  reqTitle: string;
+  interviewType: InterviewType;
+  durationMinutes: number;
+  interviewerEmails: string[];
+  windowDays: number;    // How many days out (default 14)
+  deadlineDays: number;  // Days until link expires (default 7)
+  minTotalMinutes?: number;
+  minBlocks?: number;
+}
+
+export interface CreateAvailabilityRequestOutput {
+  id: string;
+  publicLink: string;
+  expiresAt: string;
+}
+
+export interface SubmitAvailabilityInput {
+  candidateTimezone: string;
+  blocks: Array<{
+    startAt: string; // ISO 8601 UTC
+    endAt: string;   // ISO 8601 UTC
+  }>;
+}
+
+export interface GetSuggestionsOutput {
+  suggestions: Array<{
+    startAt: string;
+    endAt: string;
+    interviewerEmails: string[];
+    score: number;
+    rationale: string;
+  }>;
+}
+
+export interface BookFromSuggestionInput {
+  startAt: string; // ISO 8601 UTC
+  candidateTimezone: string;
 }
