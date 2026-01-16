@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
+import { CandidateLinkCard } from '@/components/sharing';
 
 // Types
 interface SchedulingRequest {
@@ -301,27 +302,27 @@ function CoordinatorDashboard() {
     <div className="min-h-screen bg-slate-50">
       {/* Header */}
       <header className="bg-white border-b border-slate-200">
-        <div className="max-w-[1600px] mx-auto px-6 py-4">
-          <div className="flex justify-between items-center">
+        <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-4">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3">
             <div>
-              <h1 className="text-xl font-semibold text-slate-900">
+              <h1 className="text-lg sm:text-xl font-semibold text-slate-900">
                 Coordinator Dashboard
               </h1>
-              <p className="text-sm text-slate-500 mt-0.5">
+              <p className="text-sm text-slate-500 mt-0.5 hidden sm:block">
                 Manage interview scheduling requests
               </p>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3 sm:gap-4">
               <button
                 onClick={() => setShowForm(true)}
-                className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors shadow-sm"
+                className="bg-indigo-600 text-white px-3 sm:px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors shadow-sm whitespace-nowrap"
               >
                 + New Request
               </button>
-              <div className="flex items-center gap-3 pl-4 border-l border-slate-200">
+              <div className="flex items-center gap-2 sm:gap-3 pl-3 sm:pl-4 border-l border-slate-200">
                 <Link
                   href="/settings"
-                  className="text-sm text-slate-600 hover:text-slate-900 transition-colors"
+                  className="text-sm text-slate-600 hover:text-slate-900 transition-colors hidden sm:inline"
                 >
                   Settings
                 </Link>
@@ -338,7 +339,7 @@ function CoordinatorDashboard() {
         </div>
       </header>
 
-      <main className="max-w-[1600px] mx-auto px-6 py-6">
+      <main className="max-w-[1600px] mx-auto px-4 sm:px-6 py-4 sm:py-6">
         {/* Create Form Modal */}
         {showForm && (
           <CreateRequestForm
@@ -351,7 +352,7 @@ function CoordinatorDashboard() {
         )}
 
         {/* Status Tabs */}
-        <div className="flex items-center gap-1 mb-6 border-b border-slate-200">
+        <div className="flex items-center gap-1 mb-4 sm:mb-6 border-b border-slate-200 overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
           {STATUS_TABS.map((tab) => {
             const count = tab.id === 'all' ? counts.all : counts[tab.statusFilter || ''];
             const isActive = activeTab === tab.id;
@@ -384,10 +385,10 @@ function CoordinatorDashboard() {
         </div>
 
         {/* Filters Row */}
-        <div className="bg-white rounded-lg border border-slate-200 p-4 mb-4">
-          <div className="flex flex-wrap gap-4 items-end">
+        <div className="bg-white rounded-lg border border-slate-200 p-3 sm:p-4 mb-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:flex lg:flex-wrap gap-3 sm:gap-4 items-end">
             {/* Search */}
-            <div className="flex-1 min-w-[200px] max-w-md">
+            <div className="sm:col-span-2 lg:flex-1 lg:min-w-[200px] lg:max-w-md">
               <label className="block text-xs font-medium text-slate-500 mb-1.5">
                 Search
               </label>
@@ -401,7 +402,7 @@ function CoordinatorDashboard() {
             </div>
 
             {/* Age Range */}
-            <div className="w-36">
+            <div className="lg:w-36">
               <label className="block text-xs font-medium text-slate-500 mb-1.5">
                 Age
               </label>
@@ -422,7 +423,7 @@ function CoordinatorDashboard() {
             </div>
 
             {/* Interviewer Email */}
-            <div className="w-48">
+            <div className="lg:w-48">
               <label className="block text-xs font-medium text-slate-500 mb-1.5">
                 Interviewer
               </label>
@@ -438,8 +439,8 @@ function CoordinatorDashboard() {
               />
             </div>
 
-            {/* Needs Sync */}
-            <div className="flex items-center">
+            {/* Needs Sync + Clear */}
+            <div className="flex items-center justify-between sm:justify-start gap-4 sm:col-span-2 lg:col-span-1">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input
                   type="checkbox"
@@ -450,19 +451,19 @@ function CoordinatorDashboard() {
                   }}
                   className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
                 />
-                <span className="text-sm text-slate-600">Sync issues only</span>
+                <span className="text-sm text-slate-600">Sync issues</span>
               </label>
-            </div>
 
-            {/* Clear Filters */}
-            {hasActiveFilters && (
-              <button
-                onClick={clearFilters}
-                className="text-sm text-slate-500 hover:text-slate-700 underline"
-              >
-                Clear filters
-              </button>
-            )}
+              {/* Clear Filters */}
+              {hasActiveFilters && (
+                <button
+                  onClick={clearFilters}
+                  className="text-sm text-slate-500 hover:text-slate-700 underline"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -718,9 +719,19 @@ interface CreateRequestFormProps {
   onCreated: () => void;
 }
 
+interface CreatedRequestInfo {
+  id: string;
+  publicLink: string;
+  candidateName: string;
+  candidateEmail: string;
+  reqTitle: string;
+  expiresAt: string;
+}
+
 function CreateRequestForm({ onClose, onCreated }: CreateRequestFormProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [createdRequest, setCreatedRequest] = useState<CreatedRequestInfo | null>(null);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -735,10 +746,14 @@ function CreateRequestForm({ onClose, onCreated }: CreateRequestFormProps) {
     const windowEnd = new Date(windowStart);
     windowEnd.setDate(windowEnd.getDate() + 14);
 
+    const candidateName = formData.get('candidateName') as string;
+    const candidateEmail = formData.get('candidateEmail') as string;
+    const reqTitle = formData.get('reqTitle') as string;
+
     const data = {
-      candidateName: formData.get('candidateName'),
-      candidateEmail: formData.get('candidateEmail'),
-      reqTitle: formData.get('reqTitle'),
+      candidateName,
+      candidateEmail,
+      reqTitle,
       interviewType: formData.get('interviewType'),
       durationMinutes: parseInt(formData.get('durationMinutes') as string, 10),
       interviewerEmails: (formData.get('interviewerEmails') as string)
@@ -765,13 +780,67 @@ function CreateRequestForm({ onClose, onCreated }: CreateRequestFormProps) {
       }
 
       const result = await res.json();
-      alert(`Scheduling request created!\n\nPublic link: ${result.publicLink}`);
-      onCreated();
+
+      // Show success view with link card
+      setCreatedRequest({
+        id: result.id,
+        publicLink: result.publicLink,
+        candidateName,
+        candidateEmail,
+        reqTitle,
+        expiresAt: windowEnd.toISOString(),
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create request');
     } finally {
       setSubmitting(false);
     }
+  }
+
+  // Success View
+  if (createdRequest) {
+    return (
+      <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-xl shadow-xl max-w-lg w-full mx-4 overflow-hidden">
+          <div className="p-6">
+            <CandidateLinkCard
+              link={createdRequest.publicLink}
+              candidateName={createdRequest.candidateName}
+              candidateEmail={createdRequest.candidateEmail}
+              positionTitle={createdRequest.reqTitle}
+              expiresAt={createdRequest.expiresAt}
+              variant="success"
+            />
+
+            <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-gray-200">
+              <button
+                onClick={() => {
+                  onCreated();
+                }}
+                className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800"
+              >
+                Close
+              </button>
+              <Link
+                href={`/coordinator/${createdRequest.id}`}
+                className="px-4 py-2 text-sm text-[#1a5f5f] border border-[#1a5f5f]/30 rounded-lg hover:bg-[#1a5f5f]/5"
+              >
+                View Details
+              </Link>
+              <button
+                onClick={() => {
+                  setCreatedRequest(null);
+                  setError(null);
+                }}
+                className="px-4 py-2 bg-[#1a5f5f] text-white text-sm font-medium rounded-lg hover:bg-[#164d4d]"
+              >
+                Create Another
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

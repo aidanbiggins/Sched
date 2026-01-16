@@ -15,8 +15,19 @@ import type {
 } from '@/types/organization';
 
 // In-memory storage for organizations
-const organizationsStore = new Map<string, Organization>();
-const orgMembersStore = new Map<string, OrgMember>();
+// Use globalThis to persist across Next.js hot reloads in development
+const globalForOrgs = globalThis as unknown as {
+  organizationsStore: Map<string, Organization> | undefined;
+  orgMembersStore: Map<string, OrgMember> | undefined;
+};
+
+const organizationsStore = globalForOrgs.organizationsStore ?? new Map<string, Organization>();
+const orgMembersStore = globalForOrgs.orgMembersStore ?? new Map<string, OrgMember>();
+
+if (process.env.NODE_ENV !== 'production') {
+  globalForOrgs.organizationsStore = organizationsStore;
+  globalForOrgs.orgMembersStore = orgMembersStore;
+}
 
 /**
  * Generate a URL-friendly slug from a name

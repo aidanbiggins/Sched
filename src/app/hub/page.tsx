@@ -15,6 +15,7 @@ import {
 import { getRecentVisits, formatTimeAgo, type RecentVisit } from '@/lib/recentVisits';
 import { StatusBadge, LoadingSpinner, ConfirmModal } from '@/components/ui';
 import { OrgSwitcher } from '@/components/OrgSwitcher';
+import { SetupChecklist } from '@/components/onboarding';
 import type { EnvStatus } from '@/app/api/ops/status/route';
 
 // ============================================
@@ -274,7 +275,7 @@ function ChecksSection({
 
       {health && (
         <div className="mt-4 pt-4 border-t border-gray-100">
-          <div className="grid grid-cols-3 gap-4 text-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-4 text-sm">
             <div>
               <span className="text-gray-500">Failed Webhooks:</span>
               <span className="ml-2 font-medium">
@@ -396,18 +397,18 @@ export default function HubPage() {
       {/* Header */}
       <header className="bg-white border-b shadow-sm sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div className="flex items-center gap-3">
               <span className="text-3xl">🏠</span>
               <div>
                 <h1 className="text-xl font-semibold text-gray-900">Sched Hub</h1>
-                <p className="text-sm text-gray-500">Central navigation and status</p>
+                <p className="text-sm text-gray-500 hidden sm:block">Central navigation and status</p>
               </div>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3 sm:gap-4">
               <OrgSwitcher />
               {session?.user?.name && (
-                <span className="text-sm text-gray-600">
+                <span className="text-sm text-gray-600 hidden md:inline">
                   Welcome, {session.user.name.split(' ')[0]}
                   {isSuperadmin && (
                     <span className="ml-1 text-xs text-purple-600">(Superadmin)</span>
@@ -481,6 +482,9 @@ export default function HubPage() {
 
       {/* Content */}
       <main className="max-w-7xl mx-auto px-4 py-6">
+        {/* Setup Checklist for new users */}
+        <SetupChecklist className="mb-6" />
+
         {/* Environment Status */}
         <EnvStatusPanel status={envStatus} health={health} />
 

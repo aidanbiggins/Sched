@@ -106,7 +106,7 @@ export const authOptions: NextAuthOptions = {
             .insert({
               email: user.email,
               name: user.name,
-              role: 'user',
+              role: 'coordinator',
               image: user.image,
             })
             .select('id')

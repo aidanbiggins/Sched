@@ -88,11 +88,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Debug logging
+    console.log('Create org - userId:', session.user.id);
+
     // Create organization (creator becomes admin)
     const { organization, membership } = await createOrganization(
       { name: name.trim(), slug },
       session.user.id
     );
+
+    console.log('Created org:', organization.id, 'membership:', membership);
 
     return NextResponse.json({
       organization: {

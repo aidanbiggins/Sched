@@ -327,3 +327,24 @@ export {
   getOrgMemberCount,
   resetOrganizationStores,
 } from './organizations';
+
+// ============================================
+// Organization Invites (memory-only for now)
+// ============================================
+
+export {
+  generateInviteCode,
+  createInvite,
+  getInviteById,
+  getInviteByCode,
+  getInviteWithOrg,
+  getOrgInvites,
+  getPendingInvites,
+  getInvitesByEmail,
+  acceptInvite,
+  revokeInvite,
+  deleteInvite,
+  hasPendingInvite,
+  cleanupExpiredInvites,
+  resetInvitesStore,
+} from './invites';
