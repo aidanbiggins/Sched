@@ -28,7 +28,7 @@ declare module 'next-auth' {
       organizations?: Array<{
         id: string;
         name: string;
-        slug: string;
+        slug: string | null;
         role: OrgMemberRole;
       }>;
     };
@@ -50,7 +50,7 @@ declare module 'next-auth/jwt' {
     organizations?: Array<{
       id: string;
       name: string;
-      slug: string;
+      slug: string | null;
       role: OrgMemberRole;
     }>;
     accessToken?: string;

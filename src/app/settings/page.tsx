@@ -129,6 +129,29 @@ export default function SettingsPage() {
           </button>
         </div>
 
+        {/* Organization Section */}
+        <Link
+          href="/settings/organization"
+          className="block bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6 hover:border-zinc-700 transition-colors group"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                <svg className="w-5 h-5 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-lg font-medium text-zinc-100">Organization</h2>
+                <p className="text-zinc-400 text-sm">Organization settings and details</p>
+              </div>
+            </div>
+            <svg className="w-5 h-5 text-zinc-500 group-hover:text-zinc-300 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </div>
+        </Link>
+
         {/* Team Section */}
         <Link
           href="/settings/team"

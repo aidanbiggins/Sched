@@ -104,9 +104,10 @@ describe('CoordinatorDashboard', () => {
     render(<CoordinatorPage />);
 
     await waitFor(() => {
-      expect(screen.getByText('John Doe')).toBeInTheDocument();
-      expect(screen.getByText('john@example.com')).toBeInTheDocument();
-      expect(screen.getByText('pending')).toBeInTheDocument();
+      // Both mobile and desktop views render
+      expect(screen.getAllByText('John Doe').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('john@example.com').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('pending').length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -195,12 +196,16 @@ describe('CoordinatorDashboard', () => {
     render(<CoordinatorPage />);
 
     await waitFor(() => {
-      const pendingBadge = screen.getByText('pending');
-      const bookedBadge = screen.getByText('booked');
+      // Both mobile and desktop views render badges
+      const pendingBadges = screen.getAllByText('pending');
+      const bookedBadges = screen.getAllByText('booked');
+
+      expect(pendingBadges.length).toBeGreaterThanOrEqual(1);
+      expect(bookedBadges.length).toBeGreaterThanOrEqual(1);
 
       // New color classes use amber/emerald instead of yellow/green
-      expect(pendingBadge).toHaveClass('bg-amber-100');
-      expect(bookedBadge).toHaveClass('bg-emerald-100');
+      expect(pendingBadges[0]).toHaveClass('bg-amber-100');
+      expect(bookedBadges[0]).toHaveClass('bg-emerald-100');
     });
   });
 
@@ -233,7 +238,9 @@ describe('CoordinatorDashboard', () => {
     render(<CoordinatorPage />);
 
     await waitFor(() => {
-      expect(screen.getByText('View')).toBeInTheDocument();
+      // Both mobile and desktop views render "View" links
+      const viewLinks = screen.getAllByText('View');
+      expect(viewLinks.length).toBeGreaterThanOrEqual(1);
     });
   });
 

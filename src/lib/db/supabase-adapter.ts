@@ -47,20 +47,30 @@ import {
 } from '@/types/capacity';
 // Database row types for mapping - using inline types for flexibility
 // until we generate proper types from a real Supabase project
-/* eslint-disable @typescript-eslint/no-explicit-any */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SchedulingRequestRow = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type BookingRow = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AuditLogRow = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SyncJobRow = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type WebhookEventRow = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ReconciliationJobRow = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type InterviewerIdentityRow = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type TenantConfigRow = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AvailabilityRequestRow = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type CandidateAvailabilityBlockRow = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type NotificationJobRow = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type NotificationAttemptRow = any;
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 // ============================================
 // Type Mappers (DB Row <-> Domain Type)
@@ -2170,11 +2180,12 @@ export async function getAuditActionCounts(
 // Interviewer Profiles (M15 Capacity Planning)
 // ============================================
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type InterviewerProfileRow = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type LoadRollupRow = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type RecommendationRow = any;
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 function mapToInterviewerProfile(row: InterviewerProfileRow): InterviewerProfile {
   return {

@@ -23,6 +23,8 @@ import { authOptions } from '@/lib/auth/authOptions';
 import { validateGraphConfig, isGraphModeReal, GraphConfigError } from '@/lib/graph/validateConfig';
 import { GraphTokenManager } from '@/lib/graph/GraphTokenManager';
 import { graphFetch, GraphApiError } from '@/lib/graph/graphRetry';
+import { setLastValidationEvidence, getLastValidationEvidence } from '@/lib/graph/validationEvidence';
+import type { GraphValidationEvidence } from '@/types/scheduling';
 
 // Superadmin check
 function isSuperadmin(email: string | null | undefined): boolean {
@@ -432,10 +434,12 @@ export async function POST(request: NextRequest): Promise<NextResponse<Validatio
     }
 
     // Check 3: Organizer Access
-    checks.push(await checkOrganizerAccess());
+    const organizerCheck = await checkOrganizerAccess();
+    checks.push(organizerCheck);
 
     // Check 4: Scoping (optional)
-    checks.push(await checkScopingEnforced(scopingTestEmail));
+    const scopingCheck = await checkScopingEnforced(scopingTestEmail);
+    checks.push(scopingCheck);
 
     // Check 5: FreeBusy
     checks.push(await checkFreeBusy());
@@ -447,10 +451,37 @@ export async function POST(request: NextRequest): Promise<NextResponse<Validatio
     const failures = checks.filter(c => c.status === 'fail').length;
     const overallStatus = failures > 0 ? 'not_ready' : 'ready';
 
+    // Get config for evidence
+    let tenantId = '(unknown)';
+    try {
+      const config = validateGraphConfig();
+      tenantId = maskValue(config.tenantId, 4);
+    } catch {
+      // Ignore - config already checked
+    }
+
+    // Save validation evidence
+    const evidence: GraphValidationEvidence = {
+      id: `val-${Date.now()}`,
+      organizationId: null,
+      tenantId,
+      runAt: new Date(),
+      overallStatus,
+      checks,
+      scopingProof: {
+        organizerAccessAllowed: organizerCheck.status === 'pass',
+        nonOrganizerAccessDenied: scopingCheck.status === 'pass' ? true : scopingCheck.status === 'fail' ? false : null,
+        testEmail: scopingTestEmail || null,
+      },
+      runBy: session.user.email,
+    };
+    setLastValidationEvidence(evidence);
+
     return NextResponse.json({
       overallStatus,
       checks,
       timestamp: new Date().toISOString(),
+      evidenceId: evidence.id,
     });
   } catch (error) {
     console.error('Error running Graph validation:', error);
@@ -461,21 +492,77 @@ export async function POST(request: NextRequest): Promise<NextResponse<Validatio
   }
 }
 
-// GET returns current config status without running live checks
-export async function GET(): Promise<NextResponse<{ configured: boolean; mode: string } | { error: string }>> {
+// GET returns current config status and last validation evidence
+export async function GET(): Promise<NextResponse<{
+  configured: boolean;
+  mode: string;
+  lastValidation?: {
+    id: string;
+    runAt: string;
+    overallStatus: string;
+    tenantId: string;
+    runBy: string;
+    scopingProof: {
+      organizerAccessAllowed: boolean;
+      nonOrganizerAccessDenied: boolean | null;
+    };
+    passedChecks: number;
+    failedChecks: number;
+    skippedChecks: number;
+  };
+} | { error: string }>> {
   try {
     const mode = isGraphModeReal() ? 'real' : 'mock';
+    let configured = false;
 
-    if (mode === 'mock') {
-      return NextResponse.json({ configured: false, mode });
+    if (mode === 'real') {
+      try {
+        validateGraphConfig();
+        configured = true;
+      } catch {
+        configured = false;
+      }
     }
 
-    try {
-      validateGraphConfig();
-      return NextResponse.json({ configured: true, mode });
-    } catch {
-      return NextResponse.json({ configured: false, mode });
+    // Include last validation evidence if available
+    const result: {
+      configured: boolean;
+      mode: string;
+      lastValidation?: {
+        id: string;
+        runAt: string;
+        overallStatus: string;
+        tenantId: string;
+        runBy: string;
+        scopingProof: {
+          organizerAccessAllowed: boolean;
+          nonOrganizerAccessDenied: boolean | null;
+        };
+        passedChecks: number;
+        failedChecks: number;
+        skippedChecks: number;
+      };
+    } = { configured, mode };
+
+    const evidence = getLastValidationEvidence();
+    if (evidence) {
+      result.lastValidation = {
+        id: evidence.id,
+        runAt: evidence.runAt.toISOString(),
+        overallStatus: evidence.overallStatus,
+        tenantId: evidence.tenantId,
+        runBy: evidence.runBy,
+        scopingProof: {
+          organizerAccessAllowed: evidence.scopingProof.organizerAccessAllowed,
+          nonOrganizerAccessDenied: evidence.scopingProof.nonOrganizerAccessDenied,
+        },
+        passedChecks: evidence.checks.filter(c => c.status === 'pass').length,
+        failedChecks: evidence.checks.filter(c => c.status === 'fail').length,
+        skippedChecks: evidence.checks.filter(c => c.status === 'skip').length,
+      };
     }
+
+    return NextResponse.json(result);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Internal server error' },

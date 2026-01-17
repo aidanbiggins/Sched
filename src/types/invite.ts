@@ -45,7 +45,7 @@ export interface CreateInviteInput {
  */
 export interface InviteWithOrg extends OrgInvite {
   organizationName: string;
-  organizationSlug: string;
+  organizationSlug: string | null;
   inviterName?: string;
 }
 

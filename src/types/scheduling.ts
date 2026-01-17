@@ -34,7 +34,10 @@ export type AuditAction =
   | 'reconciliation_failed'
   | 'calendar_event_recreated'
   | 'calendar_event_cleanup'
-  | 'needs_attention_set';
+  | 'needs_attention_set'
+  | 'org_updated'
+  | 'member_role_changed'
+  | 'member_removed';
 
 export type SyncJobType = 'icims_note';
 export type SyncJobStatus = 'pending' | 'processing' | 'completed' | 'failed';
@@ -756,4 +759,39 @@ export interface InterviewerNotificationPayload {
   scheduledEndLocal: string;
   conferenceJoinUrl: string | null;
   organizationName?: string;
+}
+
+// ============================================
+// Graph Validation Evidence Types (M17)
+// ============================================
+
+export type GraphValidationStatus = 'ready' | 'not_ready' | 'not_configured';
+
+/**
+ * GraphValidationCheck - Individual validation check result
+ */
+export interface GraphValidationCheck {
+  name: string;
+  status: 'pass' | 'fail' | 'skip' | 'pending';
+  durationMs?: number;
+  details?: string[];
+  error?: string;
+}
+
+/**
+ * GraphValidationEvidence - Record of a Graph API validation run
+ */
+export interface GraphValidationEvidence {
+  id: string;
+  organizationId: string | null;
+  tenantId: string;  // Masked tenant ID for evidence
+  runAt: Date;
+  overallStatus: GraphValidationStatus;
+  checks: GraphValidationCheck[];
+  scopingProof: {
+    organizerAccessAllowed: boolean;
+    nonOrganizerAccessDenied: boolean | null;
+    testEmail: string | null;
+  };
+  runBy: string;  // Email of user who ran the validation
 }

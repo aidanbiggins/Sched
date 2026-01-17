@@ -166,6 +166,27 @@ export default function OpsPage() {
   const [analyticsSummary, setAnalyticsSummary] = useState<AnalyticsSummary | null>(null);
   const [jobsData, setJobsData] = useState<JobsData | null>(null);
   const [capacityRecommendations, setCapacityRecommendations] = useState<CapacityRecommendation[]>([]);
+  const [graphValidation, setGraphValidation] = useState<{
+    configured: boolean;
+    mode: string;
+    lastValidation?: {
+      id: string;
+      runAt: string;
+      overallStatus: string;
+      tenantId: string;
+      runBy: string;
+      scopingProof: { organizerAccessAllowed: boolean; nonOrganizerAccessDenied: boolean | null };
+      passedChecks: number;
+      failedChecks: number;
+      skippedChecks: number;
+    };
+  } | null>(null);
+  const [icimsHealth, setIcimsHealth] = useState<{
+    status: string;
+    config: { mode: string; hasApiKey: boolean };
+    syncJobs: { pending: number; completedLast24h: number; failedLast24h: number };
+    metricsLast24h: { totalCalls: number; successfulCalls: number; failedCalls: number };
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -273,6 +294,30 @@ export default function OpsPage() {
     }
   }, []);
 
+  // Fetch Graph validation status (M17)
+  const fetchGraphValidation = useCallback(async () => {
+    try {
+      const res = await fetch('/api/ops/graph-validator');
+      if (!res.ok) return;
+      const data = await res.json();
+      setGraphValidation(data);
+    } catch (err) {
+      console.error('Error fetching graph validation:', err);
+    }
+  }, []);
+
+  // Fetch iCIMS health (M17)
+  const fetchIcimsHealth = useCallback(async () => {
+    try {
+      const res = await fetch('/api/ops/icims');
+      if (!res.ok) return;
+      const data = await res.json();
+      setIcimsHealth(data);
+    } catch (err) {
+      console.error('Error fetching icims health:', err);
+    }
+  }, []);
+
   // Trigger manual job run
   const triggerJob = async (jobName: string) => {
     try {
@@ -332,11 +377,13 @@ export default function OpsPage() {
         fetchAnalytics(),
         fetchJobs(),
         fetchCapacity(),
+        fetchGraphValidation(),
+        fetchIcimsHealth(),
       ]);
       setLoading(false);
     };
     load();
-  }, [fetchHealth, fetchWebhooks, fetchReconciliation, fetchAttention, fetchNotifications, fetchAnalytics, fetchJobs, fetchCapacity]);
+  }, [fetchHealth, fetchWebhooks, fetchReconciliation, fetchAttention, fetchNotifications, fetchAnalytics, fetchJobs, fetchCapacity, fetchGraphValidation, fetchIcimsHealth]);
 
   // Auto-refresh
   useEffect(() => {
@@ -478,7 +525,13 @@ export default function OpsPage() {
           </div>
         )}
 
-        {activeTab === 'overview' && health && <OverviewTab health={health} />}
+        {activeTab === 'overview' && health && (
+          <OverviewTab
+            health={health}
+            graphValidation={graphValidation}
+            icimsHealth={icimsHealth}
+          />
+        )}
         {activeTab === 'webhooks' && <WebhooksTab webhooks={webhooks} />}
         {activeTab === 'reconciliation' && <ReconciliationTab jobs={reconciliationJobs} />}
         {activeTab === 'attention' && (
@@ -507,7 +560,34 @@ export default function OpsPage() {
 }
 
 // Overview Tab
-function OverviewTab({ health }: { health: HealthStatus }) {
+function OverviewTab({
+  health,
+  graphValidation,
+  icimsHealth,
+}: {
+  health: HealthStatus;
+  graphValidation: {
+    configured: boolean;
+    mode: string;
+    lastValidation?: {
+      id: string;
+      runAt: string;
+      overallStatus: string;
+      tenantId: string;
+      runBy: string;
+      scopingProof: { organizerAccessAllowed: boolean; nonOrganizerAccessDenied: boolean | null };
+      passedChecks: number;
+      failedChecks: number;
+      skippedChecks: number;
+    };
+  } | null;
+  icimsHealth: {
+    status: string;
+    config: { mode: string; hasApiKey: boolean };
+    syncJobs: { pending: number; completedLast24h: number; failedLast24h: number };
+    metricsLast24h: { totalCalls: number; successfulCalls: number; failedCalls: number };
+  } | null;
+}) {
   return (
     <div className="space-y-6">
       {/* Summary Cards */}
@@ -544,6 +624,134 @@ function OverviewTab({ health }: { health: HealthStatus }) {
             status={health.notifications.failed > 0 ? 'warning' : 'ok'}
           />
         )}
+      </div>
+
+      {/* Integration Status Row */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* Graph API Status */}
+        <div className="bg-slate-800 rounded-lg p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-medium">Microsoft Graph API</h3>
+            {graphValidation && (
+              <span className={`px-2 py-1 rounded text-xs font-medium ${
+                graphValidation.mode === 'mock'
+                  ? 'bg-slate-600 text-slate-300'
+                  : graphValidation.configured
+                  ? 'bg-emerald-500/20 text-emerald-300'
+                  : 'bg-amber-500/20 text-amber-300'
+              }`}>
+                {graphValidation.mode === 'mock' ? 'Mock Mode' : graphValidation.configured ? 'Configured' : 'Not Configured'}
+              </span>
+            )}
+          </div>
+          {graphValidation?.lastValidation ? (
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-slate-400">Last Validation:</span>
+                <span className={graphValidation.lastValidation.overallStatus === 'ready' ? 'text-emerald-400' : 'text-red-400'}>
+                  {graphValidation.lastValidation.overallStatus.toUpperCase()}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Tenant:</span>
+                <span className="font-mono text-xs">{graphValidation.lastValidation.tenantId}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Scoping Proof:</span>
+                <span>
+                  {graphValidation.lastValidation.scopingProof.organizerAccessAllowed ? '✓ Organizer' : '✗ Organizer'}
+                  {graphValidation.lastValidation.scopingProof.nonOrganizerAccessDenied !== null && (
+                    graphValidation.lastValidation.scopingProof.nonOrganizerAccessDenied ? ' ✓ Scoped' : ' ✗ Scoped'
+                  )}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Checks:</span>
+                <span>
+                  <span className="text-emerald-400">{graphValidation.lastValidation.passedChecks} passed</span>
+                  {graphValidation.lastValidation.failedChecks > 0 && (
+                    <span className="text-red-400 ml-2">{graphValidation.lastValidation.failedChecks} failed</span>
+                  )}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Run at:</span>
+                <span className="text-slate-300">{new Date(graphValidation.lastValidation.runAt).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Run by:</span>
+                <span className="text-slate-300">{graphValidation.lastValidation.runBy}</span>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400">
+              {graphValidation?.mode === 'mock'
+                ? 'Running in mock mode - no real Graph API calls'
+                : 'No validation run yet. Run the Graph Validator to generate evidence.'}
+            </p>
+          )}
+          <Link
+            href="/ops/graph-validator"
+            className="mt-4 inline-block px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 rounded transition-colors"
+          >
+            Run Validator
+          </Link>
+        </div>
+
+        {/* iCIMS Status */}
+        <div className="bg-slate-800 rounded-lg p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-medium">iCIMS Integration</h3>
+            {icimsHealth && (
+              <span className={`px-2 py-1 rounded text-xs font-medium ${
+                icimsHealth.config.mode === 'mock'
+                  ? 'bg-slate-600 text-slate-300'
+                  : icimsHealth.status === 'healthy'
+                  ? 'bg-emerald-500/20 text-emerald-300'
+                  : icimsHealth.status === 'degraded'
+                  ? 'bg-amber-500/20 text-amber-300'
+                  : 'bg-red-500/20 text-red-300'
+              }`}>
+                {icimsHealth.config.mode === 'mock' ? 'Mock Mode' : icimsHealth.status.toUpperCase()}
+              </span>
+            )}
+          </div>
+          {icimsHealth ? (
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-slate-400">API Calls (24h):</span>
+                <span className="text-slate-300">{icimsHealth.metricsLast24h.totalCalls}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Successful:</span>
+                <span className="text-emerald-400">{icimsHealth.metricsLast24h.successfulCalls}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Failed:</span>
+                <span className={icimsHealth.metricsLast24h.failedCalls > 0 ? 'text-red-400' : 'text-slate-300'}>
+                  {icimsHealth.metricsLast24h.failedCalls}
+                </span>
+              </div>
+              <hr className="border-slate-700 my-2" />
+              <div className="flex justify-between">
+                <span className="text-slate-400">Sync Jobs Pending:</span>
+                <span className="text-amber-400">{icimsHealth.syncJobs.pending}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Completed (24h):</span>
+                <span className="text-emerald-400">{icimsHealth.syncJobs.completedLast24h}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-400">Failed (24h):</span>
+                <span className={icimsHealth.syncJobs.failedLast24h > 0 ? 'text-red-400' : 'text-slate-300'}>
+                  {icimsHealth.syncJobs.failedLast24h}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400">Loading iCIMS status...</p>
+          )}
+        </div>
       </div>
 
       {/* Webhook Stats */}

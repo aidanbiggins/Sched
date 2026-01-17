@@ -542,10 +542,57 @@ function CoordinatorDashboard() {
           </div>
         )}
 
-        {/* Table */}
+        {/* Table (Desktop) / Cards (Mobile) */}
         {!loading && requests.length > 0 && (
           <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-            <div className="overflow-x-auto">
+            {/* Mobile Card View */}
+            <div className="block md:hidden divide-y divide-slate-100">
+              {requests.map((request) => (
+                <div
+                  key={`mobile-${request.requestId}`}
+                  className={`p-4 ${selectedIds.has(request.requestId) ? 'bg-indigo-50' : ''}`}
+                >
+                  <div className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(request.requestId)}
+                      onChange={() => toggleSelect(request.requestId)}
+                      className="mt-1 w-4 h-4 rounded border-slate-300 text-indigo-600"
+                      aria-label={`Select ${request.candidateName}`}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span
+                          className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full border ${getStatusBadge(request.status)}`}
+                        >
+                          {request.status}
+                        </span>
+                        <span className="text-xs text-slate-400">{formatAge(request.ageDays)}</span>
+                      </div>
+                      <div className="font-medium text-slate-900 truncate">{request.candidateName}</div>
+                      <div className="text-sm text-slate-500 truncate">{request.candidateEmail}</div>
+                      {request.booking && (
+                        <div className="text-sm text-slate-600 mt-1">
+                          Scheduled: {formatScheduledTime(request.booking)}
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2 mt-2">
+                        {getSyncStatusBadge(request.syncStatus)}
+                        <Link
+                          href={`/coordinator/${request.requestId}`}
+                          className="text-sm text-indigo-600 hover:text-indigo-800 font-medium ml-auto"
+                        >
+                          View
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop Table View */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="min-w-full divide-y divide-slate-200">
                 <thead className="bg-slate-50">
                   <tr>
@@ -554,6 +601,7 @@ function CoordinatorDashboard() {
                         type="checkbox"
                         checked={selectedIds.size === requests.length && requests.length > 0}
                         onChange={toggleSelectAll}
+                        aria-label="Select all requests"
                         className="w-4 h-4 rounded border-slate-300 text-indigo-600"
                       />
                     </th>
@@ -599,6 +647,7 @@ function CoordinatorDashboard() {
                           type="checkbox"
                           checked={selectedIds.has(request.requestId)}
                           onChange={() => toggleSelect(request.requestId)}
+                          aria-label={`Select ${request.candidateName}`}
                           className="w-4 h-4 rounded border-slate-300 text-indigo-600"
                         />
                       </td>
@@ -657,8 +706,11 @@ function CoordinatorDashboard() {
 
             {/* Pagination */}
             {pagination.totalPages > 1 && (
-              <div className="px-4 py-3 border-t border-slate-200 flex items-center justify-between">
-                <div className="text-sm text-slate-500">
+              <nav
+                className="px-4 py-3 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3"
+                aria-label="Pagination"
+              >
+                <div className="text-sm text-slate-500 text-center sm:text-left">
                   Showing {(pagination.page - 1) * pagination.limit + 1} to{' '}
                   {Math.min(pagination.page * pagination.limit, pagination.total)} of{' '}
                   {pagination.total} results
@@ -667,44 +719,53 @@ function CoordinatorDashboard() {
                   <button
                     onClick={() => setPage(page - 1)}
                     disabled={page === 1}
+                    aria-label="Previous page"
                     className="px-3 py-1 text-sm border border-slate-200 rounded hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Previous
                   </button>
-                  {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
-                    let pageNum: number;
-                    if (pagination.totalPages <= 5) {
-                      pageNum = i + 1;
-                    } else if (page <= 3) {
-                      pageNum = i + 1;
-                    } else if (page >= pagination.totalPages - 2) {
-                      pageNum = pagination.totalPages - 4 + i;
-                    } else {
-                      pageNum = page - 2 + i;
-                    }
-                    return (
-                      <button
-                        key={pageNum}
-                        onClick={() => setPage(pageNum)}
-                        className={`px-3 py-1 text-sm border rounded ${
-                          pageNum === page
-                            ? 'bg-indigo-600 text-white border-indigo-600'
-                            : 'border-slate-200 hover:bg-slate-50'
-                        }`}
-                      >
-                        {pageNum}
-                      </button>
-                    );
-                  })}
+                  <span className="hidden sm:flex gap-1">
+                    {Array.from({ length: Math.min(5, pagination.totalPages) }, (_, i) => {
+                      let pageNum: number;
+                      if (pagination.totalPages <= 5) {
+                        pageNum = i + 1;
+                      } else if (page <= 3) {
+                        pageNum = i + 1;
+                      } else if (page >= pagination.totalPages - 2) {
+                        pageNum = pagination.totalPages - 4 + i;
+                      } else {
+                        pageNum = page - 2 + i;
+                      }
+                      return (
+                        <button
+                          key={pageNum}
+                          onClick={() => setPage(pageNum)}
+                          aria-label={`Page ${pageNum}`}
+                          aria-current={pageNum === page ? 'page' : undefined}
+                          className={`px-3 py-1 text-sm border rounded ${
+                            pageNum === page
+                              ? 'bg-indigo-600 text-white border-indigo-600'
+                              : 'border-slate-200 hover:bg-slate-50'
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      );
+                    })}
+                  </span>
+                  <span className="sm:hidden text-sm text-slate-500 px-2 py-1">
+                    {page} / {pagination.totalPages}
+                  </span>
                   <button
                     onClick={() => setPage(page + 1)}
                     disabled={page === pagination.totalPages}
+                    aria-label="Next page"
                     className="px-3 py-1 text-sm border border-slate-200 rounded hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Next
                   </button>
                 </div>
-              </div>
+              </nav>
             )}
           </div>
         )}

@@ -12,7 +12,7 @@ export type OrgMemberRole = 'admin' | 'member';
 export interface Organization {
   id: string;
   name: string;
-  slug: string;
+  slug: string | null;
 
   // Settings
   defaultTimezone: string;
@@ -76,6 +76,7 @@ export interface CreateOrganizationInput {
  */
 export interface UpdateOrganizationInput {
   name?: string;
+  slug?: string | null;
   defaultTimezone?: string;
   defaultDurationMinutes?: number;
   maxMembers?: number | null;

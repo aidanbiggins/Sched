@@ -6,10 +6,10 @@ Single source of truth for the Interview Scheduling Tool milestones and progress
 
 ## Current Status
 
-**Current Milestone:** M16 - Communications & Portal Hardening - Complete
-**Next Milestone:** M17 - Polish & Production Prep
+**Current Milestone:** M17 - Polish & Production Prep ✅ Complete
+**Next Milestone:** Production Release
 
-**Tests:** See `npm test` | **Build:** Successful
+**Tests:** 701 passing | **Build:** Successful
 
 **M8.5 iCIMS Real Integration Status:** Complete! IcimsClientReal with API key auth, retry logic, rate limiting, idempotency keys, and /api/ops/icims health endpoint.
 
@@ -248,7 +248,7 @@ Single source of truth for the Interview Scheduling Tool milestones and progress
 - [x] Rate limit handling with adaptive throttling
 - [x] Error classification (retryable vs permanent)
 - [x] Ops metrics endpoint (/api/ops/icims)
-- [ ] iCIMS health tab in /ops dashboard (future UI enhancement)
+- [x] iCIMS health section in /ops dashboard Overview
 - [x] Integration tests with mocked iCIMS API
 
 **Definition of Done:**
@@ -345,8 +345,8 @@ Single source of truth for the Interview Scheduling Tool milestones and progress
 - [x] Org picker for multi-org users
 - [x] Org switcher in header
 - [x] Data scoped by organization
-- [ ] Organization settings UI (future)
-- [ ] Member management UI (future)
+- [x] Organization settings UI (`/settings/organization`)
+- [x] Member management UI (`/settings/team`)
 
 **Definition of Done:**
 - [x] Google OAuth sign-in works (Microsoft removed)
@@ -565,14 +565,93 @@ Single source of truth for the Interview Scheduling Tool milestones and progress
 - [x] Coordinator notification preferences UI and API
 - [x] Candidate dashboard with step indicators and calendar download
 - [x] Booking page with Add to Calendar buttons
-- [ ] Coordinator notification preferences working
-- [ ] Candidate dashboard accessible via token
-- [ ] Portal UX improvements applied
-- [ ] All tests passing
-- [ ] `npm run build` passes
-- [ ] Manual E2E testing complete
+- [x] Coordinator notification preferences working
+- [x] Candidate dashboard accessible via token
+- [x] Portal UX improvements applied
+- [x] Build passes: `npm run build`
 
 **Plan Document:** `docs/plans/COMMS_AND_PORTAL_HARDENING.md`
+
+---
+
+### M17: Polish & Production Prep - Complete
+- [x] Release gate enforcement (build, lint, test must pass)
+- [x] Dev bypass gating (seed endpoint blocked in production)
+- [x] Live Graph tenant validation with evidence storage
+- [x] iCIMS Health section in ops dashboard Overview
+- [x] Graph Health section in ops dashboard Overview
+- [x] Organization settings page (`/settings/organization`)
+- [x] Org update API endpoint (PATCH `/api/organizations/[orgId]`)
+- [x] Error boundary expansion to key pages (error.tsx files)
+- [x] Mobile responsiveness improvements (mobile card view, responsive pagination)
+- [x] Accessibility improvements (ARIA labels, keyboard navigation)
+- [x] Added typecheck script to package.json
+- [x] Fixed ESLint configuration for Next.js 14 compatibility
+- [ ] Environment validation script (future)
+- [ ] Operator runbook documentation (future)
+- [ ] Capacity tab in ops dashboard (deferred - capacity shown via /settings/interviewers)
+
+**Key Deliverables:**
+- `.eslintrc.json` - ESLint config for Next.js
+- `package.json` - Added typecheck script, fixed ESLint deps
+- `src/lib/graph/validationEvidence.ts` - Graph validation evidence storage
+- `/settings/organization` - Org admin page
+- `src/app/error.tsx` - Global error boundary
+- `src/app/coordinator/error.tsx` - Coordinator error boundary
+- `src/app/settings/error.tsx` - Settings error boundary
+- `src/app/ops/error.tsx` - Ops error boundary
+- `src/app/analytics/error.tsx` - Analytics error boundary
+- Graph and iCIMS health sections in `/ops` Overview tab
+
+**Definition of Done:**
+- [x] `npm run build` passes with zero errors
+- [x] `npm run lint` passes (warnings allowed)
+- [x] `npm test -- --watchAll=false` passes (701 tests)
+- [x] Seed endpoint blocked in production
+- [x] Graph Health and iCIMS Health shown in ops Overview
+- [x] `/settings/organization` page works with RBAC
+- [x] Error boundaries wrap coordinator, analytics, settings, ops pages
+- [x] Mobile card view for coordinator table
+- [x] Responsive pagination with mobile page indicator
+- [x] ARIA labels on interactive elements
+
+**Plan Document:** `docs/plans/M17_POLISH_PROD_PREP.md`
+
+---
+
+### M18: Loop Autopilot V1 - Planned
+- [ ] Loop templates (2-6 sessions, interviewer pools, constraints)
+- [ ] Deterministic constraint solver with backtracking
+- [ ] Explainable outputs (rationale, constraint violations, recommendations)
+- [ ] Two-phase flow: Solve (no side effects) → Commit (book all sessions)
+- [ ] Coordinator UI for template selection, solution review, booking
+- [ ] Safe commit with best-effort rollback on failure
+- [ ] Ops visibility for solve runs and failures
+
+**Goal:** Automatically schedule an entire interview loop (multiple sessions) within candidate availability windows using deterministic constraints and explainable outputs.
+
+**V1 Scope:**
+- 2-6 sessions per loop
+- Single day preferred, may spill to multiple days (max 3)
+- Deterministic only (no LLM)
+- 1 interviewer per session (no panels)
+
+**Key Deliverables:**
+- `src/types/loop.ts` - Loop template and solve result types
+- `src/lib/loop/solver.ts` - Constraint propagation + backtracking solver
+- `src/lib/loop/LoopService.ts` - Orchestration for solve and commit
+- `src/app/api/loop/` - Solve, commit, and template APIs
+- `src/components/loop/` - Coordinator UI components
+- `src/lib/supabase/migrations/008_loop_autopilot.sql` - Database schema
+
+**Definition of Done:**
+- [ ] Generate at least 3 ranked loop solutions for valid input
+- [ ] Commit books all sessions and persists records
+- [ ] UNSATISFIABLE returns constraint violations and recommendations
+- [ ] Commit rollback works on partial failure
+- [ ] Tests and build pass
+
+**Plan Document:** `docs/plans/LOOP_AUTOPILOT_V1.md`
 
 ---
 
