@@ -291,6 +291,58 @@ export const deleteCandidateAvailabilityBlocksByRequestId = isSupabase
   : memoryAdapter.deleteCandidateAvailabilityBlocksByRequestId;
 
 // ============================================
+// Notification Jobs
+// ============================================
+
+export const createNotificationJob = isSupabase
+  ? supabaseAdapter.createNotificationJob
+  : memoryAdapter.createNotificationJob;
+
+export const getNotificationJobById = isSupabase
+  ? supabaseAdapter.getNotificationJobById
+  : memoryAdapter.getNotificationJobById;
+
+export const getNotificationJobByIdempotencyKey = isSupabase
+  ? supabaseAdapter.getNotificationJobByIdempotencyKey
+  : memoryAdapter.getNotificationJobByIdempotencyKey;
+
+export const updateNotificationJob = isSupabase
+  ? supabaseAdapter.updateNotificationJob
+  : memoryAdapter.updateNotificationJob;
+
+export const getPendingNotificationJobs = isSupabase
+  ? supabaseAdapter.getPendingNotificationJobs
+  : memoryAdapter.getPendingNotificationJobs;
+
+export const getNotificationJobsByEntityId = isSupabase
+  ? supabaseAdapter.getNotificationJobsByEntityId
+  : memoryAdapter.getNotificationJobsByEntityId;
+
+export const getNotificationJobsFiltered = isSupabase
+  ? supabaseAdapter.getNotificationJobsFiltered
+  : memoryAdapter.getNotificationJobsFiltered;
+
+export const getNotificationJobCounts = isSupabase
+  ? supabaseAdapter.getNotificationJobCounts
+  : memoryAdapter.getNotificationJobCounts;
+
+export const cancelPendingNotificationJobsByEntity = isSupabase
+  ? supabaseAdapter.cancelPendingNotificationJobsByEntity
+  : memoryAdapter.cancelPendingNotificationJobsByEntity;
+
+// ============================================
+// Notification Attempts
+// ============================================
+
+export const createNotificationAttempt = isSupabase
+  ? supabaseAdapter.createNotificationAttempt
+  : memoryAdapter.createNotificationAttempt;
+
+export const getNotificationAttemptsByJobId = isSupabase
+  ? supabaseAdapter.getNotificationAttemptsByJobId
+  : memoryAdapter.getNotificationAttemptsByJobId;
+
+// ============================================
 // Reset (for testing)
 // ============================================
 

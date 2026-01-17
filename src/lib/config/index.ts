@@ -33,6 +33,11 @@ export interface AppConfig {
    * Database mode
    */
   dbMode: 'memory' | 'supabase';
+
+  /**
+   * Whether email notifications are enabled
+   */
+  emailEnabled: boolean;
 }
 
 /**
@@ -48,6 +53,7 @@ export function getAppConfig(): AppConfig {
     atsSyncEnabled: isEnterprise && process.env.ATS_SYNC_ENABLED !== 'false',
     atsWebhooksEnabled: isEnterprise && process.env.ATS_WEBHOOKS_ENABLED !== 'false',
     dbMode: (process.env.DB_MODE as 'memory' | 'supabase') || 'memory',
+    emailEnabled: process.env.EMAIL_ENABLED !== 'false',
   };
 }
 
@@ -63,4 +69,11 @@ export function isStandaloneMode(): boolean {
  */
 export function isAtsEnabled(): boolean {
   return getAppConfig().atsEnabled;
+}
+
+/**
+ * Check if email notifications are enabled
+ */
+export function isEmailEnabled(): boolean {
+  return getAppConfig().emailEnabled;
 }

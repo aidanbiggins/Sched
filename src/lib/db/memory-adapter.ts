@@ -20,6 +20,10 @@ import {
   AvailabilityRequest,
   AvailabilityRequestStatus,
   CandidateAvailabilityBlock,
+  NotificationJob,
+  NotificationAttempt,
+  NotificationStatus,
+  NotificationType,
 } from '@/types/scheduling';
 
 // ============================================
@@ -37,6 +41,8 @@ interface Store {
   reconciliationJobs: Map<string, ReconciliationJob>;
   availabilityRequests: Map<string, AvailabilityRequest>;
   candidateAvailabilityBlocks: Map<string, CandidateAvailabilityBlock>;
+  notificationJobs: Map<string, NotificationJob>;
+  notificationAttempts: Map<string, NotificationAttempt>;
 }
 
 const store: Store = {
@@ -50,6 +56,8 @@ const store: Store = {
   reconciliationJobs: new Map(),
   availabilityRequests: new Map(),
   candidateAvailabilityBlocks: new Map(),
+  notificationJobs: new Map(),
+  notificationAttempts: new Map(),
 };
 
 // ============================================
@@ -820,6 +828,190 @@ export async function deleteCandidateAvailabilityBlocksByRequestId(
 }
 
 // ============================================
+// Notification Jobs
+// ============================================
+
+export async function createNotificationJob(job: NotificationJob): Promise<NotificationJob> {
+  // Check idempotency key
+  for (const existing of Array.from(store.notificationJobs.values())) {
+    if (existing.idempotencyKey === job.idempotencyKey) {
+      return existing; // Return existing job (idempotent)
+    }
+  }
+  store.notificationJobs.set(job.id, job);
+  return job;
+}
+
+export async function getNotificationJobById(id: string): Promise<NotificationJob | null> {
+  return store.notificationJobs.get(id) || null;
+}
+
+export async function getNotificationJobByIdempotencyKey(
+  idempotencyKey: string
+): Promise<NotificationJob | null> {
+  for (const job of Array.from(store.notificationJobs.values())) {
+    if (job.idempotencyKey === idempotencyKey) {
+      return job;
+    }
+  }
+  return null;
+}
+
+export async function updateNotificationJob(
+  id: string,
+  updates: Partial<NotificationJob>
+): Promise<NotificationJob | null> {
+  const existing = store.notificationJobs.get(id);
+  if (!existing) return null;
+
+  const updated = { ...existing, ...updates, updatedAt: new Date() };
+  store.notificationJobs.set(id, updated);
+  return updated;
+}
+
+export async function getPendingNotificationJobs(limit: number = 10): Promise<NotificationJob[]> {
+  const now = new Date();
+  const pending: NotificationJob[] = [];
+
+  for (const job of Array.from(store.notificationJobs.values())) {
+    if (job.status === 'PENDING' && job.runAfter <= now) {
+      pending.push(job);
+    }
+  }
+
+  // Sort by runAfter ascending (oldest first)
+  pending.sort((a, b) => a.runAfter.getTime() - b.runAfter.getTime());
+
+  return pending.slice(0, limit);
+}
+
+export async function getNotificationJobsByEntityId(
+  entityType: string,
+  entityId: string
+): Promise<NotificationJob[]> {
+  const jobs: NotificationJob[] = [];
+  for (const job of Array.from(store.notificationJobs.values())) {
+    if (job.entityType === entityType && job.entityId === entityId) {
+      jobs.push(job);
+    }
+  }
+  return jobs.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+}
+
+export async function getNotificationJobsFiltered(
+  filters: {
+    status?: NotificationStatus[];
+    type?: NotificationType[];
+    entityType?: string;
+    entityId?: string;
+  },
+  pagination: { page?: number; limit?: number } = {}
+): Promise<{ data: NotificationJob[]; total: number; page: number; limit: number }> {
+  const { page = 1, limit = 20 } = pagination;
+  let jobs = Array.from(store.notificationJobs.values());
+
+  if (filters.status && filters.status.length > 0) {
+    jobs = jobs.filter((j) => filters.status!.includes(j.status));
+  }
+  if (filters.type && filters.type.length > 0) {
+    jobs = jobs.filter((j) => filters.type!.includes(j.type));
+  }
+  if (filters.entityType) {
+    jobs = jobs.filter((j) => j.entityType === filters.entityType);
+  }
+  if (filters.entityId) {
+    jobs = jobs.filter((j) => j.entityId === filters.entityId);
+  }
+
+  jobs.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+  const total = jobs.length;
+  const offset = (page - 1) * limit;
+  const data = jobs.slice(offset, offset + limit);
+
+  return { data, total, page, limit };
+}
+
+export async function getNotificationJobCounts(): Promise<{
+  total: number;
+  pending: number;
+  sending: number;
+  sent: number;
+  failed: number;
+  canceled: number;
+}> {
+  const counts = { total: 0, pending: 0, sending: 0, sent: 0, failed: 0, canceled: 0 };
+
+  for (const job of Array.from(store.notificationJobs.values())) {
+    counts.total++;
+    switch (job.status) {
+      case 'PENDING':
+        counts.pending++;
+        break;
+      case 'SENDING':
+        counts.sending++;
+        break;
+      case 'SENT':
+        counts.sent++;
+        break;
+      case 'FAILED':
+        counts.failed++;
+        break;
+      case 'CANCELED':
+        counts.canceled++;
+        break;
+    }
+  }
+
+  return counts;
+}
+
+export async function cancelPendingNotificationJobsByEntity(
+  entityType: string,
+  entityId: string,
+  types?: NotificationType[]
+): Promise<number> {
+  let cancelled = 0;
+  for (const job of Array.from(store.notificationJobs.values())) {
+    if (
+      job.entityType === entityType &&
+      job.entityId === entityId &&
+      job.status === 'PENDING' &&
+      (!types || types.includes(job.type))
+    ) {
+      job.status = 'CANCELED';
+      job.updatedAt = new Date();
+      store.notificationJobs.set(job.id, job);
+      cancelled++;
+    }
+  }
+  return cancelled;
+}
+
+// ============================================
+// Notification Attempts
+// ============================================
+
+export async function createNotificationAttempt(
+  attempt: NotificationAttempt
+): Promise<NotificationAttempt> {
+  store.notificationAttempts.set(attempt.id, attempt);
+  return attempt;
+}
+
+export async function getNotificationAttemptsByJobId(
+  notificationJobId: string
+): Promise<NotificationAttempt[]> {
+  const attempts: NotificationAttempt[] = [];
+  for (const attempt of Array.from(store.notificationAttempts.values())) {
+    if (attempt.notificationJobId === notificationJobId) {
+      attempts.push(attempt);
+    }
+  }
+  return attempts.sort((a, b) => a.attemptNumber - b.attemptNumber);
+}
+
+// ============================================
 // Reset (for testing)
 // ============================================
 
@@ -834,4 +1026,6 @@ export function resetDatabase(): void {
   store.reconciliationJobs.clear();
   store.availabilityRequests.clear();
   store.candidateAvailabilityBlocks.clear();
+  store.notificationJobs.clear();
+  store.notificationAttempts.clear();
 }

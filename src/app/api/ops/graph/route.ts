@@ -12,8 +12,9 @@
  */
 
 import { NextResponse } from 'next/server';
-import { getRealClientInstance, getGraphRetryMetrics, isGraphModeReal } from '@/lib/graph';
+import { getRealClientInstance, getGraphRetryMetrics, isGraphModeReal, GraphMetricsCollector } from '@/lib/graph';
 import type { GraphCalendarClientReal } from '@/lib/graph/GraphCalendarClientReal';
+import type { EndpointMetrics } from '@/lib/graph/GraphMetricsCollector';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,13 +46,41 @@ interface GraphHealthResponse {
       timestamp: string;
     } | null;
   };
+  // Extended metrics from GraphMetricsCollector
+  extendedMetrics?: {
+    apiCalls: {
+      total: number;
+      successful: number;
+      failed: number;
+      rateLimited: number;
+      byEndpoint: Record<string, EndpointMetrics>;
+    };
+    connectionHealth: {
+      lastSuccessfulCall: string | null;
+      lastFailedCall: string | null;
+      consecutiveFailures: number;
+    };
+  };
   timestamp: string;
+}
+
+function getExtendedMetrics() {
+  const collected = GraphMetricsCollector.getMetrics();
+  return {
+    apiCalls: collected.apiCalls,
+    connectionHealth: {
+      lastSuccessfulCall: collected.connectionHealth.lastSuccessfulCall?.toISOString() ?? null,
+      lastFailedCall: collected.connectionHealth.lastFailedCall?.toISOString() ?? null,
+      consecutiveFailures: collected.connectionHealth.consecutiveFailures,
+    },
+  };
 }
 
 export async function GET(): Promise<NextResponse<GraphHealthResponse>> {
   try {
     const mode = isGraphModeReal() ? 'real' : 'mock';
     const retryMetrics = getGraphRetryMetrics();
+    const extendedMetrics = getExtendedMetrics();
 
     // Calculate success rate
     const successRate = retryMetrics.totalCalls > 0
@@ -78,6 +107,7 @@ export async function GET(): Promise<NextResponse<GraphHealthResponse>> {
               }
             : null,
         },
+        extendedMetrics,
         timestamp: new Date().toISOString(),
       });
     }
@@ -117,6 +147,7 @@ export async function GET(): Promise<NextResponse<GraphHealthResponse>> {
               }
             : null,
         },
+        extendedMetrics,
         timestamp: new Date().toISOString(),
       });
     }
@@ -181,6 +212,7 @@ export async function GET(): Promise<NextResponse<GraphHealthResponse>> {
             }
           : null,
       },
+      extendedMetrics,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {

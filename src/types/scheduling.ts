@@ -512,3 +512,128 @@ export interface BookFromSuggestionInput {
   startAt: string; // ISO 8601 UTC
   candidateTimezone: string;
 }
+
+// ============================================
+// Notification Types (M10)
+// ============================================
+
+export type NotificationType =
+  | 'candidate_availability_request'
+  | 'candidate_self_schedule_link'
+  | 'booking_confirmation'
+  | 'reschedule_confirmation'
+  | 'cancel_notice'
+  | 'reminder_24h'
+  | 'reminder_2h';
+
+export type NotificationStatus = 'PENDING' | 'SENDING' | 'SENT' | 'FAILED' | 'CANCELED';
+
+export type NotificationEntityType = 'scheduling_request' | 'booking' | 'availability_request';
+
+/**
+ * NotificationJob - A queued email notification
+ */
+export interface NotificationJob {
+  id: string;
+  tenantId: string | null;
+  type: NotificationType;
+  entityType: NotificationEntityType;
+  entityId: string;
+  idempotencyKey: string;
+  toEmail: string;
+  payloadJson: Record<string, unknown>;
+  status: NotificationStatus;
+  attempts: number;
+  maxAttempts: number;
+  runAfter: Date;
+  lastError: string | null;
+  sentAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * NotificationAttempt - Record of each send attempt
+ */
+export interface NotificationAttempt {
+  id: string;
+  notificationJobId: string;
+  attemptNumber: number;
+  status: 'success' | 'failure';
+  error: string | null;
+  providerMessageId: string | null;
+  createdAt: Date;
+}
+
+/**
+ * Input for creating a notification job
+ */
+export interface CreateNotificationJobInput {
+  tenantId?: string | null;
+  type: NotificationType;
+  entityType: NotificationEntityType;
+  entityId: string;
+  toEmail: string;
+  payload: Record<string, unknown>;
+  runAfter?: Date;
+}
+
+/**
+ * Template payload types for each notification type
+ */
+export interface NotificationPayloadBase {
+  candidateName: string;
+  candidateEmail: string;
+  candidateTimezone: string;
+  reqTitle: string;
+  interviewType: string;
+  durationMinutes: number;
+  organizationName?: string;
+}
+
+export interface AvailabilityRequestPayload extends NotificationPayloadBase {
+  publicLink: string;
+  expiresAt: string;
+  windowStart: string;
+  windowEnd: string;
+}
+
+export interface SelfScheduleLinkPayload extends NotificationPayloadBase {
+  publicLink: string;
+  expiresAt: string;
+}
+
+export interface BookingConfirmationPayload extends NotificationPayloadBase {
+  scheduledStartUtc: string;
+  scheduledEndUtc: string;
+  scheduledStartLocal: string;
+  scheduledEndLocal: string;
+  conferenceJoinUrl: string | null;
+  interviewerEmails: string[];
+  calendarEventId: string | null;
+}
+
+export interface RescheduleConfirmationPayload extends NotificationPayloadBase {
+  oldStartUtc: string;
+  oldEndUtc: string;
+  newStartUtc: string;
+  newEndUtc: string;
+  newStartLocal: string;
+  newEndLocal: string;
+  conferenceJoinUrl: string | null;
+  reason: string | null;
+}
+
+export interface CancelNoticePayload extends NotificationPayloadBase {
+  reason: string;
+  cancelledBy: string;
+}
+
+export interface ReminderPayload extends NotificationPayloadBase {
+  scheduledStartUtc: string;
+  scheduledEndUtc: string;
+  scheduledStartLocal: string;
+  scheduledEndLocal: string;
+  conferenceJoinUrl: string | null;
+  hoursUntil: number;
+}

@@ -10,6 +10,8 @@
  * - Metrics tracking for ops dashboard
  */
 
+import { GraphMetricsCollector } from './GraphMetricsCollector';
+
 export interface GraphRetryConfig {
   maxRetries?: number;
   baseDelayMs?: number;
@@ -205,6 +207,24 @@ export async function withGraphRetry<T>(
 }
 
 /**
+ * Extract endpoint name from URL for metrics
+ */
+function extractEndpoint(url: string): string {
+  try {
+    const urlObj = new URL(url);
+    // Remove query params and normalize path
+    // e.g., /v1.0/users/user@example.com/calendar -> /users/{user}/calendar
+    const path = urlObj.pathname
+      .replace(/\/v1\.0|\/beta/, '') // Remove API version
+      .replace(/\/[a-f0-9-]{36}/gi, '/{id}') // Replace UUIDs
+      .replace(/\/[^/]+@[^/]+/g, '/{user}'); // Replace emails
+    return path || '/';
+  } catch {
+    return url.slice(0, 50);
+  }
+}
+
+/**
  * Make a Graph API request and handle errors
  *
  * @param url - Graph API URL
@@ -216,9 +236,23 @@ export async function graphFetch<T>(
   url: string,
   options: RequestInit
 ): Promise<T> {
-  const response = await fetch(url, options);
+  const endpoint = extractEndpoint(url);
+  const startTime = Date.now();
+
+  let response: Response;
+  try {
+    response = await fetch(url, options);
+  } catch (error) {
+    const latencyMs = Date.now() - startTime;
+    GraphMetricsCollector.recordFailure(endpoint, latencyMs, 0);
+    throw error;
+  }
+
+  const latencyMs = Date.now() - startTime;
 
   if (!response.ok) {
+    GraphMetricsCollector.recordFailure(endpoint, latencyMs, response.status);
+
     let errorMessage: string;
     try {
       const errorBody = await response.json();
@@ -233,6 +267,8 @@ export async function graphFetch<T>(
       response.headers.get('Retry-After') ?? undefined
     );
   }
+
+  GraphMetricsCollector.recordSuccess(endpoint, latencyMs);
 
   // Handle 202 Accepted and 204 No Content (no response body)
   if (response.status === 202 || response.status === 204) {

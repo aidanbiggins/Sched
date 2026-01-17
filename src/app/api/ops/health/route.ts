@@ -16,6 +16,7 @@ import {
   getReconciliationJobCounts,
   getNeedsAttentionCount,
   getSchedulingRequestCounts,
+  getNotificationJobCounts,
 } from '@/lib/db';
 
 export async function GET() {
@@ -33,8 +34,16 @@ export async function GET() {
     // Get request counts
     const requestCounts = await getSchedulingRequestCounts();
 
+    // Get notification stats (gracefully handle if table doesn't exist yet)
+    let notificationCounts = { pending: 0, sending: 0, sent: 0, failed: 0, canceled: 0 };
+    try {
+      notificationCounts = await getNotificationJobCounts();
+    } catch (notifError) {
+      console.warn('Could not fetch notification counts (table may not exist):', notifError);
+    }
+
     // Calculate system health status
-    const hasFailures = webhookCounts.failed > 0 || reconciliationCounts.failed > 0;
+    const hasFailures = webhookCounts.failed > 0 || reconciliationCounts.failed > 0 || notificationCounts.failed > 0;
     const hasAttention = needsAttentionCount > 0;
     const systemStatus = hasFailures || hasAttention ? 'degraded' : 'healthy';
 
@@ -59,6 +68,13 @@ export async function GET() {
       requests: {
         byStatus: requestCounts,
         needsAttention: needsAttentionCount,
+      },
+      notifications: {
+        pending: notificationCounts.pending,
+        sending: notificationCounts.sending,
+        sent: notificationCounts.sent,
+        failed: notificationCounts.failed,
+        canceled: notificationCounts.canceled,
       },
     });
   } catch (error) {

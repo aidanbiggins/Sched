@@ -4,5 +4,7 @@ export { GraphCalendarClientMock, parseGetScheduleResponse } from './GraphCalend
 export { GraphCalendarClientReal } from './GraphCalendarClientReal';
 export { GraphTokenManager, GraphTokenError } from './GraphTokenManager';
 export { withGraphRetry, graphFetch, GraphApiError, getGraphRetryMetrics, resetGraphRetryMetrics, isTransientError, parseRetryAfter } from './graphRetry';
+export { GraphMetricsCollector } from './GraphMetricsCollector';
+export type { GraphCollectedMetrics, ApiCallMetrics, ConnectionHealth, EndpointMetrics } from './GraphMetricsCollector';
 export { validateGraphConfig, isGraphModeReal, GraphConfigError } from './validateConfig';
 export * from './types';

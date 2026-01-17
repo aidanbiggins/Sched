@@ -6,8 +6,8 @@ Single source of truth for the Interview Scheduling Tool milestones and progress
 
 ## Current Status
 
-**Current Milestone:** M11 - Google Auth + Organizations + RBAC - Complete
-**Next Milestone:** M10 - Notifications & Reminders
+**Current Milestone:** M7.1 - Graph Production Readiness - Complete
+**Next Milestone:** M12 - Analytics & Reporting
 
 **Tests:** See `npm test` | **Build:** Successful
 
@@ -172,6 +172,33 @@ Single source of truth for the Interview Scheduling Tool milestones and progress
 
 ---
 
+### M7.1: Graph Production Readiness - Complete
+- [x] GraphMetricsCollector for API call tracking (count, latency, errors by endpoint)
+- [x] Extended `/api/ops/graph` metrics endpoint
+- [x] Smoke test command (`npm run graph:smoke`)
+- [x] Validator UI (`/ops/graph-validator`)
+- [x] Scoping enforcement validation (Application Access Policy)
+- [x] Updated documentation with PowerShell commands for Access Policy
+- [ ] Operator runbook Graph troubleshooting section (future)
+- [ ] End-to-end validation in real Azure AD tenant (requires Azure setup)
+
+**Definition of Done:**
+- [x] GraphMetricsCollector captures API call metrics
+- [x] `/api/ops/graph` returns extended metrics including API call stats
+- [x] `npm run graph:smoke` executes 6 smoke tests (config, token, organizer access, scoping, freeBusy, event lifecycle)
+- [x] Smoke tests verify scoping enforcement (random user denied)
+- [x] `/ops/graph-validator` UI shows validation results with pass/fail badges
+- [x] Validator tests organizer access AND scoping denial
+- [x] Documentation includes Application Access Policy PowerShell commands
+- [ ] Operator runbook has Graph troubleshooting section (future)
+- [x] Tests pass: `npm test` (567 passing, 12 pre-existing failures)
+- [x] Build passes: `npm run build`
+- [ ] End-to-end: Smoke tests pass in real Azure AD tenant (requires Azure setup)
+
+**Plan Document:** `docs/plans/GRAPH_PROD_READINESS.md`
+
+---
+
 ### M7.5: Standalone Mode (Personal Calendar Integration) - Complete
 - [x] NextAuth.js authentication (Google + Microsoft OAuth)
 - [x] User accounts and calendar connections database schema
@@ -265,15 +292,44 @@ Single source of truth for the Interview Scheduling Tool milestones and progress
 
 ---
 
-### M10: Notifications & Reminders
-- [ ] Email notifications (booking confirmation, reminders)
-- [ ] Calendar invite updates
-- [ ] Reminder scheduling (24h, 1h before)
+### M10: Notifications & Reminders - Complete
+- [x] Email notifications (booking confirmation, reminders)
+- [x] Notification job queue with idempotency keys
+- [x] Email templates for all 7 notification types
+- [x] Reminder scheduling (24h, 2h before)
+- [x] Dev mode (console logging) and SMTP support
+- [x] Coordinator resend buttons
+- [x] Ops notifications tab with filtering and retry
+- [x] Background notification worker with exponential backoff
+
+**Notification Types:**
+- `candidate_availability_request` - Initial availability collection request
+- `candidate_self_schedule_link` - Self-scheduling booking link
+- `booking_confirmation` - Interview booked confirmation
+- `reschedule_confirmation` - Interview time changed
+- `cancel_notice` - Interview cancelled
+- `reminder_24h` - 24 hours before interview
+- `reminder_2h` - 2 hours before interview
+
+**Key Files Created:**
+- `src/lib/supabase/migrations/004_notifications.sql` - Database schema
+- `src/lib/notifications/EmailService.ts` - Email sending service
+- `src/lib/notifications/templates.ts` - Email templates
+- `src/lib/notifications/NotificationService.ts` - Enqueue logic with idempotency
+- `src/app/api/ops/notifications/route.ts` - Notification jobs list API
+- `src/app/api/ops/notifications/[id]/retry/route.ts` - Retry failed jobs API
+- `scripts/notify-worker.ts` - Background worker
 
 **Definition of Done:**
-- Candidates receive booking confirmation email
-- Reminder emails sent before interview
-- Cancellation notifications sent
+- [x] Candidates receive booking confirmation email
+- [x] Reminder emails scheduled before interview (24h, 2h)
+- [x] Cancellation notifications sent
+- [x] Reschedule notifications sent
+- [x] Idempotency prevents duplicate sends
+- [x] Ops dashboard shows notification queue health
+- [x] Failed notifications can be retried
+- [x] Tests pass (unit tests for templates, idempotency, service)
+- [x] `npm run build` passes
 
 ---
 
@@ -353,12 +409,25 @@ Single source of truth for the Interview Scheduling Tool milestones and progress
 
 ---
 
-*Last updated: 2026-01-15*
+*Last updated: 2026-01-16*
 
 ---
 
 ## Recent Changes
 
+- **2026-01-16:** M7.1 (Graph Production Readiness) - Implementation complete
+  - GraphMetricsCollector singleton for API call tracking
+  - Extended `/api/ops/graph` with endpoint-level metrics
+  - Smoke test command: `npm run graph:smoke`
+  - Validator UI at `/ops/graph-validator` with pass/fail checks
+  - Validator API at `/api/ops/graph-validator`
+  - Plan document: `docs/plans/GRAPH_PROD_READINESS.md`
+- **2026-01-16:** M10 (Notifications & Reminders) - Implementation complete
+  - Email notification system with 7 notification types
+  - Notification job queue with idempotency keys
+  - Background worker with retry logic
+  - Ops notifications tab with filtering and retry
+  - Coordinator resend buttons
 - **2026-01-15:** M11 (Google Auth + Organizations + RBAC) - Implementation complete
 - **2026-01-15:** Added M9 (Product Audit + Nav Hub) - Complete
 - **2026-01-15:** Renumbered M10 → M12 (Analytics & Reporting)

@@ -31,7 +31,7 @@ export function InviteModal({
 }: InviteModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>('email');
   const [emails, setEmails] = useState('');
-  const [role, setRole] = useState<OrgMemberRole>('coordinator');
+  const [role, setRole] = useState<OrgMemberRole>('member');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -219,14 +219,12 @@ export function InviteModal({
               onChange={(e) => setRole(e.target.value as OrgMemberRole)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1a5f5f] focus:border-[#1a5f5f] outline-none transition-shadow"
             >
-              <option value="coordinator">Coordinator</option>
-              <option value="interviewer">Interviewer</option>
+              <option value="member">Member</option>
               <option value="admin">Admin</option>
             </select>
             <p className="mt-1 text-xs text-gray-500">
               {role === 'admin' && 'Full access including team management'}
-              {role === 'coordinator' && 'Can create and manage scheduling requests'}
-              {role === 'interviewer' && 'Can view their assigned interviews'}
+              {role === 'member' && 'Can create and manage scheduling requests'}
             </p>
           </div>
 

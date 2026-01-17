@@ -23,6 +23,8 @@ import {
 import {
   generatePublicToken,
 } from '@/lib/utils/tokens';
+import { enqueueResendAvailabilityRequest } from '@/lib/notifications';
+import { isEmailEnabled } from '@/lib/config';
 
 export async function POST(
   request: NextRequest,
@@ -112,17 +114,33 @@ export async function POST(
     };
     await createAuditLog(auditLog);
 
-    // TODO: Actually send email to candidate
-    // For now, we just return the link for the coordinator to share
+    // Enqueue email notification if enabled
+    let emailQueued = false;
+    if (isEmailEnabled()) {
+      try {
+        // Need to get the updated request with the new token if regenerated
+        const updatedRequest = regenerateToken
+          ? await getAvailabilityRequestById(id)
+          : availabilityRequest;
+
+        if (updatedRequest) {
+          await enqueueResendAvailabilityRequest(updatedRequest, publicLink);
+          emailQueued = true;
+        }
+      } catch (emailError) {
+        console.error('Failed to enqueue availability request email:', emailError);
+      }
+    }
 
     return NextResponse.json({
       success: true,
       publicLink,
       expiresAt: newExpiresAt.toISOString(),
       tokenRegenerated: regenerateToken,
+      emailQueued,
       message: regenerateToken
-        ? 'New link generated. Please share with the candidate.'
-        : 'Link ready to share with the candidate.',
+        ? 'New link generated' + (emailQueued ? ' and email queued.' : '. Please share with the candidate.')
+        : 'Link ready' + (emailQueued ? ' and email queued.' : '. Please share with the candidate.'),
     });
   } catch (error) {
     console.error('Error resending availability request:', error);

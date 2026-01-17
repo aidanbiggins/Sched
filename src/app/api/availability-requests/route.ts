@@ -23,6 +23,8 @@ import {
   getAvailabilityRequestsFiltered,
   createAuditLog,
 } from '@/lib/db';
+import { enqueueAvailabilityRequestNotification } from '@/lib/notifications';
+import { isEmailEnabled } from '@/lib/config';
 import {
   AvailabilityRequest,
   AvailabilityRequestStatus,
@@ -202,6 +204,15 @@ export async function POST(request: NextRequest) {
     // Build public link
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     const publicLink = `${baseUrl}/availability/${token}`;
+
+    // Enqueue email notification (failures don't block)
+    if (isEmailEnabled()) {
+      try {
+        await enqueueAvailabilityRequestNotification(availabilityRequest, publicLink);
+      } catch (error) {
+        console.error('Failed to enqueue availability request notification:', error);
+      }
+    }
 
     return NextResponse.json(
       {

@@ -26,6 +26,13 @@ interface HealthStatus {
     byStatus: Record<string, number>;
     needsAttention: number;
   };
+  notifications?: {
+    pending: number;
+    sending: number;
+    sent: number;
+    failed: number;
+    canceled: number;
+  };
 }
 
 interface WebhookEvent {
@@ -63,7 +70,30 @@ interface AttentionRequest {
   createdAt: string;
 }
 
-type Tab = 'overview' | 'webhooks' | 'reconciliation' | 'attention';
+interface NotificationJob {
+  id: string;
+  type: string;
+  entityType: string;
+  entityId: string;
+  toEmail: string;
+  status: string;
+  attempts: number;
+  maxAttempts: number;
+  lastError: string | null;
+  runAfter: string;
+  sentAt: string | null;
+  createdAt: string;
+}
+
+interface NotificationCounts {
+  pending: number;
+  sending: number;
+  sent: number;
+  failed: number;
+  canceled: number;
+}
+
+type Tab = 'overview' | 'webhooks' | 'reconciliation' | 'attention' | 'notifications';
 
 export default function OpsPage() {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
@@ -71,6 +101,10 @@ export default function OpsPage() {
   const [webhooks, setWebhooks] = useState<WebhookEvent[]>([]);
   const [reconciliationJobs, setReconciliationJobs] = useState<ReconciliationJob[]>([]);
   const [attentionRequests, setAttentionRequests] = useState<AttentionRequest[]>([]);
+  const [notifications, setNotifications] = useState<NotificationJob[]>([]);
+  const [notificationCounts, setNotificationCounts] = useState<NotificationCounts | null>(null);
+  const [notificationStatusFilter, setNotificationStatusFilter] = useState<string>('');
+  const [notificationTypeFilter, setNotificationTypeFilter] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -124,6 +158,38 @@ export default function OpsPage() {
     }
   }, []);
 
+  // Fetch notifications
+  const fetchNotifications = useCallback(async (statusFilter?: string, typeFilter?: string) => {
+    try {
+      const params = new URLSearchParams();
+      if (statusFilter) params.set('status', statusFilter);
+      if (typeFilter) params.set('type', typeFilter);
+      params.set('limit', '50');
+
+      const res = await fetch(`/api/ops/notifications?${params.toString()}`);
+      if (!res.ok) throw new Error('Failed to fetch notifications');
+      const data = await res.json();
+      setNotifications(data.jobs);
+      setNotificationCounts(data.counts);
+    } catch (err) {
+      console.error('Error fetching notifications:', err);
+    }
+  }, []);
+
+  // Retry notification job
+  const retryNotification = async (id: string) => {
+    try {
+      const res = await fetch(`/api/ops/notifications/${id}/retry`, {
+        method: 'POST',
+      });
+      if (!res.ok) throw new Error('Failed to retry notification');
+      fetchNotifications(notificationStatusFilter, notificationTypeFilter);
+      fetchHealth();
+    } catch (err) {
+      console.error('Error retrying notification:', err);
+    }
+  };
+
   // Dismiss attention
   const dismissAttention = async (id: string, reason?: string) => {
     try {
@@ -149,11 +215,12 @@ export default function OpsPage() {
         fetchWebhooks(),
         fetchReconciliation(),
         fetchAttention(),
+        fetchNotifications(),
       ]);
       setLoading(false);
     };
     load();
-  }, [fetchHealth, fetchWebhooks, fetchReconciliation, fetchAttention]);
+  }, [fetchHealth, fetchWebhooks, fetchReconciliation, fetchAttention, fetchNotifications]);
 
   // Auto-refresh
   useEffect(() => {
@@ -163,9 +230,17 @@ export default function OpsPage() {
       if (activeTab === 'webhooks') fetchWebhooks();
       if (activeTab === 'reconciliation') fetchReconciliation();
       if (activeTab === 'attention') fetchAttention();
+      if (activeTab === 'notifications') fetchNotifications(notificationStatusFilter, notificationTypeFilter);
     }, 30000);
     return () => clearInterval(interval);
-  }, [autoRefresh, activeTab, fetchHealth, fetchWebhooks, fetchReconciliation, fetchAttention]);
+  }, [autoRefresh, activeTab, fetchHealth, fetchWebhooks, fetchReconciliation, fetchAttention, fetchNotifications, notificationStatusFilter, notificationTypeFilter]);
+
+  // Refetch notifications when filters change
+  useEffect(() => {
+    if (activeTab === 'notifications') {
+      fetchNotifications(notificationStatusFilter, notificationTypeFilter);
+    }
+  }, [activeTab, notificationStatusFilter, notificationTypeFilter, fetchNotifications]);
 
   if (loading) {
     return (
@@ -185,11 +260,17 @@ export default function OpsPage() {
         <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Link href="/coordinator" className="text-slate-400 hover:text-slate-200">
-              ← Coordinator
+              &larr; Coordinator
             </Link>
             <h1 className="text-xl font-semibold">Operator Health Dashboard</h1>
           </div>
           <div className="flex items-center gap-4">
+            <Link
+              href="/ops/graph-validator"
+              className="px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 rounded transition-colors"
+            >
+              Graph Validator
+            </Link>
             <label className="flex items-center gap-2 text-sm text-slate-400">
               <input
                 type="checkbox"
@@ -232,7 +313,7 @@ export default function OpsPage() {
       <div className="border-b border-slate-700">
         <div className="max-w-7xl mx-auto px-4">
           <nav className="flex gap-1">
-            {(['overview', 'webhooks', 'reconciliation', 'attention'] as Tab[]).map((tab) => (
+            {(['overview', 'webhooks', 'reconciliation', 'attention', 'notifications'] as Tab[]).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -246,6 +327,11 @@ export default function OpsPage() {
                 {tab === 'attention' && health && health.requests.needsAttention > 0 && (
                   <span className="ml-2 px-1.5 py-0.5 text-xs bg-red-500/30 text-red-300 rounded">
                     {health.requests.needsAttention}
+                  </span>
+                )}
+                {tab === 'notifications' && health?.notifications && health.notifications.failed > 0 && (
+                  <span className="ml-2 px-1.5 py-0.5 text-xs bg-red-500/30 text-red-300 rounded">
+                    {health.notifications.failed}
                   </span>
                 )}
               </button>
@@ -267,6 +353,17 @@ export default function OpsPage() {
         {activeTab === 'reconciliation' && <ReconciliationTab jobs={reconciliationJobs} />}
         {activeTab === 'attention' && (
           <AttentionTab requests={attentionRequests} onDismiss={dismissAttention} />
+        )}
+        {activeTab === 'notifications' && (
+          <NotificationsTab
+            notifications={notifications}
+            counts={notificationCounts}
+            statusFilter={notificationStatusFilter}
+            typeFilter={notificationTypeFilter}
+            onStatusFilterChange={setNotificationStatusFilter}
+            onTypeFilterChange={setNotificationTypeFilter}
+            onRetry={retryNotification}
+          />
         )}
       </main>
     </div>
@@ -303,6 +400,14 @@ function OverviewTab({ health }: { health: HealthStatus }) {
           subtitle={`${health.requests.byStatus.pending || 0} pending, ${health.requests.byStatus.booked || 0} booked`}
           status="ok"
         />
+        {health.notifications && (
+          <SummaryCard
+            title="Notifications"
+            value={health.notifications.pending + health.notifications.sending}
+            subtitle={`${health.notifications.sent} sent, ${health.notifications.failed} failed`}
+            status={health.notifications.failed > 0 ? 'warning' : 'ok'}
+          />
+        )}
       </div>
 
       {/* Webhook Stats */}
@@ -584,6 +689,208 @@ function AttentionTab({
   );
 }
 
+// Notifications Tab
+function NotificationsTab({
+  notifications,
+  counts,
+  statusFilter,
+  typeFilter,
+  onStatusFilterChange,
+  onTypeFilterChange,
+  onRetry,
+}: {
+  notifications: NotificationJob[];
+  counts: NotificationCounts | null;
+  statusFilter: string;
+  typeFilter: string;
+  onStatusFilterChange: (value: string) => void;
+  onTypeFilterChange: (value: string) => void;
+  onRetry: (id: string) => void;
+}) {
+  const [expandedJob, setExpandedJob] = useState<string | null>(null);
+
+  const notificationTypes = [
+    'candidate_availability_request',
+    'candidate_self_schedule_link',
+    'booking_confirmation',
+    'reschedule_confirmation',
+    'cancel_notice',
+    'reminder_24h',
+    'reminder_2h',
+  ];
+
+  return (
+    <div className="space-y-6">
+      {/* Queue Depth Stats */}
+      {counts && (
+        <div className="bg-slate-800 rounded-lg p-6">
+          <h3 className="text-lg font-medium mb-4">Notification Queue</h3>
+          <div className="grid grid-cols-5 gap-4">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-amber-400">{counts.pending}</div>
+              <div className="text-sm text-slate-400">Pending</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-blue-400">{counts.sending}</div>
+              <div className="text-sm text-slate-400">Sending</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-emerald-400">{counts.sent}</div>
+              <div className="text-sm text-slate-400">Sent</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-red-400">{counts.failed}</div>
+              <div className="text-sm text-slate-400">Failed</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-slate-400">{counts.canceled}</div>
+              <div className="text-sm text-slate-400">Canceled</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Filters */}
+      <div className="flex gap-4 flex-wrap">
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-slate-400">Status:</label>
+          <select
+            value={statusFilter}
+            onChange={(e) => onStatusFilterChange(e.target.value)}
+            className="bg-slate-700 border border-slate-600 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+          >
+            <option value="">All</option>
+            <option value="PENDING">Pending</option>
+            <option value="SENDING">Sending</option>
+            <option value="SENT">Sent</option>
+            <option value="FAILED">Failed</option>
+            <option value="CANCELED">Canceled</option>
+          </select>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-slate-400">Type:</label>
+          <select
+            value={typeFilter}
+            onChange={(e) => onTypeFilterChange(e.target.value)}
+            className="bg-slate-700 border border-slate-600 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+          >
+            <option value="">All</option>
+            {notificationTypes.map((type) => (
+              <option key={type} value={type}>
+                {type.replace(/_/g, ' ')}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* Jobs Table */}
+      <div className="bg-slate-800 rounded-lg overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-700">
+          <h3 className="font-medium">Notification Jobs</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-slate-700/50 text-left text-sm">
+              <tr>
+                <th className="px-4 py-2">Type</th>
+                <th className="px-4 py-2">To</th>
+                <th className="px-4 py-2">Status</th>
+                <th className="px-4 py-2">Attempts</th>
+                <th className="px-4 py-2">Scheduled</th>
+                <th className="px-4 py-2">Error</th>
+                <th className="px-4 py-2">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-700">
+              {notifications.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                    No notification jobs
+                  </td>
+                </tr>
+              ) : (
+                notifications.map((job) => (
+                  <>
+                    <tr key={job.id} className="hover:bg-slate-700/30">
+                      <td className="px-4 py-2">
+                        <span className="font-mono text-sm">{job.type.replace(/_/g, ' ')}</span>
+                      </td>
+                      <td className="px-4 py-2 text-sm text-slate-300">{job.toEmail}</td>
+                      <td className="px-4 py-2">
+                        <StatusBadge status={job.status} />
+                      </td>
+                      <td className="px-4 py-2 text-sm">
+                        {job.attempts}/{job.maxAttempts}
+                      </td>
+                      <td className="px-4 py-2 text-sm text-slate-400">
+                        {new Date(job.runAfter).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-2 text-xs text-red-400 max-w-xs truncate">
+                        {job.lastError || '-'}
+                      </td>
+                      <td className="px-4 py-2">
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setExpandedJob(expandedJob === job.id ? null : job.id)}
+                            className="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded"
+                          >
+                            {expandedJob === job.id ? 'Hide' : 'Details'}
+                          </button>
+                          {job.status === 'FAILED' && (
+                            <button
+                              onClick={() => onRetry(job.id)}
+                              className="px-2 py-1 text-xs bg-cyan-700/50 hover:bg-cyan-700 text-cyan-200 rounded"
+                            >
+                              Retry
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                    {expandedJob === job.id && (
+                      <tr key={`${job.id}-details`} className="bg-slate-900/50">
+                        <td colSpan={7} className="px-4 py-4">
+                          <div className="grid grid-cols-2 gap-4 text-sm">
+                            <div>
+                              <span className="text-slate-400">Job ID:</span>{' '}
+                              <span className="font-mono text-xs">{job.id}</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-400">Entity:</span>{' '}
+                              <span className="font-mono text-xs">{job.entityType}:{job.entityId}</span>
+                            </div>
+                            <div>
+                              <span className="text-slate-400">Created:</span>{' '}
+                              {new Date(job.createdAt).toLocaleString()}
+                            </div>
+                            <div>
+                              <span className="text-slate-400">Sent at:</span>{' '}
+                              {job.sentAt ? new Date(job.sentAt).toLocaleString() : '-'}
+                            </div>
+                            {job.lastError && (
+                              <div className="col-span-2">
+                                <span className="text-slate-400">Full Error:</span>
+                                <pre className="mt-1 p-2 bg-slate-800 rounded text-xs text-red-400 whitespace-pre-wrap">
+                                  {job.lastError}
+                                </pre>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Status Badge Component
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -597,6 +904,12 @@ function StatusBadge({ status }: { status: string }) {
     booked: 'bg-emerald-500/20 text-emerald-300',
     cancelled: 'bg-slate-500/20 text-slate-300',
     expired: 'bg-slate-500/20 text-slate-300',
+    // Notification statuses
+    PENDING: 'bg-amber-500/20 text-amber-300',
+    SENDING: 'bg-blue-500/20 text-blue-300',
+    SENT: 'bg-emerald-500/20 text-emerald-300',
+    FAILED: 'bg-red-500/20 text-red-300',
+    CANCELED: 'bg-slate-500/20 text-slate-300',
   };
 
   return (

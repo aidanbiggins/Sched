@@ -42,8 +42,16 @@ import {
   generateAvailableSlots,
   findSlotById,
 } from './SlotGenerationService';
-import { isAtsEnabled, isStandaloneMode } from '@/lib/config';
+import { isAtsEnabled, isStandaloneMode, isEmailEnabled } from '@/lib/config';
 import { getCalendarClient, CalendarClient, FreeBusyResponse } from '@/lib/calendar';
+import {
+  enqueueSelfScheduleLinkNotification,
+  enqueueBookingConfirmationNotification,
+  enqueueRescheduleConfirmationNotification,
+  enqueueCancelNoticeNotification,
+  enqueueReminderNotifications,
+  cancelPendingReminders,
+} from '@/lib/notifications';
 
 const DEFAULT_ORGANIZER_EMAIL = process.env.GRAPH_ORGANIZER_EMAIL || 'scheduling@example.com';
 
@@ -314,6 +322,15 @@ This interview was scheduled via Sched.
       });
     }
 
+    // Enqueue email notification (failures don't block)
+    if (isEmailEnabled()) {
+      try {
+        await enqueueSelfScheduleLinkNotification(request, publicLink);
+      } catch (error) {
+        console.error('[SchedulingService] Failed to enqueue self-schedule link notification:', error);
+      }
+    }
+
     return {
       requestId: id,
       publicLink,
@@ -479,6 +496,16 @@ This interview was scheduled via Sched.
       });
     }
 
+    // Enqueue booking confirmation and reminder notifications (failures don't block)
+    if (isEmailEnabled()) {
+      try {
+        await enqueueBookingConfirmationNotification(request, booking);
+        await enqueueReminderNotifications(request, booking);
+      } catch (error) {
+        console.error('[SchedulingService] Failed to enqueue booking notifications:', error);
+      }
+    }
+
     return {
       success: true,
       booking: {
@@ -623,6 +650,29 @@ This interview was scheduled via Sched.
       });
     }
 
+    // Enqueue reschedule notification and new reminders (failures don't block)
+    if (isEmailEnabled()) {
+      try {
+        // Cancel old reminders
+        await cancelPendingReminders(booking.id);
+        // Get updated booking with new times
+        const updatedBooking = await getBookingByRequestId(requestId);
+        if (updatedBooking) {
+          await enqueueRescheduleConfirmationNotification(
+            request,
+            updatedBooking,
+            oldStart,
+            oldEnd,
+            reason || null
+          );
+          // Schedule new reminders for the new time
+          await enqueueReminderNotifications(request, updatedBooking);
+        }
+      } catch (error) {
+        console.error('[SchedulingService] Failed to enqueue reschedule notifications:', error);
+      }
+    }
+
     return {
       status: 'rescheduled',
       bookingId: booking.id,
@@ -709,6 +759,20 @@ This interview was scheduled via Sched.
         reason,
         cancelledBy: actorId || 'coordinator',
       });
+    }
+
+    // Enqueue cancel notification and cancel pending reminders (failures don't block)
+    if (isEmailEnabled()) {
+      try {
+        // Cancel pending reminders for this booking
+        if (booking) {
+          await cancelPendingReminders(booking.id);
+        }
+        // Send cancellation notice
+        await enqueueCancelNoticeNotification(request, reason, actorId || 'coordinator');
+      } catch (error) {
+        console.error('[SchedulingService] Failed to enqueue cancel notifications:', error);
+      }
     }
 
     return { status: 'cancelled', cancelledAt, calendarEventId };

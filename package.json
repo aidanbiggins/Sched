@@ -16,7 +16,10 @@
     "scheduler:reconcile": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/reconcile-worker.ts",
     "scheduler:reconcile:once": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/reconcile-worker.ts --once",
     "scheduler:webhook:replay": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/webhook-replay.ts",
-    "seed": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/seed-test-data.ts"
+    "scheduler:notify": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/notify-worker.ts",
+    "scheduler:notify:once": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/notify-worker.ts --once",
+    "seed": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/seed-test-data.ts",
+    "graph:smoke": "ts-node --compiler-options '{\"module\":\"CommonJS\"}' scripts/graph-smoke.ts"
   },
   "keywords": [],
   "author": "",

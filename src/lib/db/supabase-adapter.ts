@@ -29,6 +29,11 @@ import {
   AvailabilityRequest,
   AvailabilityRequestStatus,
   CandidateAvailabilityBlock,
+  NotificationJob,
+  NotificationAttempt,
+  NotificationStatus,
+  NotificationType,
+  NotificationEntityType,
 } from '@/types/scheduling';
 // Database row types for mapping - using inline types for flexibility
 // until we generate proper types from a real Supabase project
@@ -43,6 +48,8 @@ type InterviewerIdentityRow = any;
 type TenantConfigRow = any;
 type AvailabilityRequestRow = any;
 type CandidateAvailabilityBlockRow = any;
+type NotificationJobRow = any;
+type NotificationAttemptRow = any;
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 // ============================================
@@ -229,6 +236,39 @@ function mapToCandidateAvailabilityBlock(row: CandidateAvailabilityBlockRow): Ca
     availabilityRequestId: row.availability_request_id,
     startAt: new Date(row.start_at),
     endAt: new Date(row.end_at),
+    createdAt: new Date(row.created_at),
+  };
+}
+
+function mapToNotificationJob(row: NotificationJobRow): NotificationJob {
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    type: row.type as NotificationType,
+    entityType: row.entity_type as NotificationEntityType,
+    entityId: row.entity_id,
+    idempotencyKey: row.idempotency_key,
+    toEmail: row.to_email,
+    payloadJson: row.payload_json || {},
+    status: row.status as NotificationStatus,
+    attempts: row.attempts,
+    maxAttempts: row.max_attempts,
+    runAfter: new Date(row.run_after),
+    lastError: row.last_error,
+    sentAt: row.sent_at ? new Date(row.sent_at) : null,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+  };
+}
+
+function mapToNotificationAttempt(row: NotificationAttemptRow): NotificationAttempt {
+  return {
+    id: row.id,
+    notificationJobId: row.notification_job_id,
+    attemptNumber: row.attempt_number,
+    status: row.status as 'success' | 'failure',
+    error: row.error,
+    providerMessageId: row.provider_message_id,
     createdAt: new Date(row.created_at),
   };
 }
@@ -1667,6 +1707,274 @@ export async function deleteCandidateAvailabilityBlocksByRequestId(
 }
 
 // ============================================
+// Notification Jobs
+// ============================================
+
+export async function createNotificationJob(job: NotificationJob): Promise<NotificationJob> {
+  const supabase = getSupabaseClient();
+
+  // Check if idempotency key already exists
+  const { data: existing } = await supabase
+    .from('notification_jobs')
+    .select()
+    .eq('idempotency_key', job.idempotencyKey)
+    .single();
+
+  if (existing) {
+    return mapToNotificationJob(existing);
+  }
+
+  const { data, error } = await supabase
+    .from('notification_jobs')
+    .insert({
+      id: job.id,
+      tenant_id: job.tenantId,
+      type: job.type,
+      entity_type: job.entityType,
+      entity_id: job.entityId,
+      idempotency_key: job.idempotencyKey,
+      to_email: job.toEmail,
+      payload_json: job.payloadJson,
+      status: job.status,
+      attempts: job.attempts,
+      max_attempts: job.maxAttempts,
+      run_after: job.runAfter.toISOString(),
+      last_error: job.lastError,
+      sent_at: job.sentAt?.toISOString() || null,
+      created_at: job.createdAt.toISOString(),
+      updated_at: job.updatedAt.toISOString(),
+    })
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to create notification job: ${error.message}`);
+  return mapToNotificationJob(data);
+}
+
+export async function getNotificationJobById(id: string): Promise<NotificationJob | null> {
+  const supabase = getSupabaseClient();
+
+  const { data, error } = await supabase
+    .from('notification_jobs')
+    .select()
+    .eq('id', id)
+    .single();
+
+  if (error && error.code !== 'PGRST116') throw new Error(`Failed to get notification job: ${error.message}`);
+  return data ? mapToNotificationJob(data) : null;
+}
+
+export async function getNotificationJobByIdempotencyKey(
+  idempotencyKey: string
+): Promise<NotificationJob | null> {
+  const supabase = getSupabaseClient();
+
+  const { data, error } = await supabase
+    .from('notification_jobs')
+    .select()
+    .eq('idempotency_key', idempotencyKey)
+    .single();
+
+  if (error && error.code !== 'PGRST116') throw new Error(`Failed to get notification job: ${error.message}`);
+  return data ? mapToNotificationJob(data) : null;
+}
+
+export async function updateNotificationJob(
+  id: string,
+  updates: Partial<NotificationJob>
+): Promise<NotificationJob | null> {
+  const supabase = getSupabaseClient();
+
+  const updateData: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (updates.status !== undefined) updateData.status = updates.status;
+  if (updates.attempts !== undefined) updateData.attempts = updates.attempts;
+  if (updates.runAfter !== undefined) updateData.run_after = updates.runAfter.toISOString();
+  if (updates.lastError !== undefined) updateData.last_error = updates.lastError;
+  if (updates.sentAt !== undefined) updateData.sent_at = updates.sentAt?.toISOString() || null;
+
+  const { data, error } = await supabase
+    .from('notification_jobs')
+    .update(updateData)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error && error.code !== 'PGRST116') throw new Error(`Failed to update notification job: ${error.message}`);
+  return data ? mapToNotificationJob(data) : null;
+}
+
+export async function getPendingNotificationJobs(limit: number = 10): Promise<NotificationJob[]> {
+  const supabase = getSupabaseClient();
+
+  const { data, error } = await supabase
+    .from('notification_jobs')
+    .select()
+    .eq('status', 'PENDING')
+    .lte('run_after', new Date().toISOString())
+    .order('run_after', { ascending: true })
+    .limit(limit);
+
+  if (error) throw new Error(`Failed to get pending notification jobs: ${error.message}`);
+  return (data || []).map(mapToNotificationJob);
+}
+
+export async function getNotificationJobsByEntityId(
+  entityType: string,
+  entityId: string
+): Promise<NotificationJob[]> {
+  const supabase = getSupabaseClient();
+
+  const { data, error } = await supabase
+    .from('notification_jobs')
+    .select()
+    .eq('entity_type', entityType)
+    .eq('entity_id', entityId)
+    .order('created_at', { ascending: false });
+
+  if (error) throw new Error(`Failed to get notification jobs: ${error.message}`);
+  return (data || []).map(mapToNotificationJob);
+}
+
+export async function getNotificationJobsFiltered(
+  filters: {
+    status?: NotificationStatus[];
+    type?: NotificationType[];
+    entityType?: string;
+    entityId?: string;
+  },
+  pagination: { page?: number; limit?: number } = {}
+): Promise<{ data: NotificationJob[]; total: number; page: number; limit: number }> {
+  const supabase = getSupabaseClient();
+  const { page = 1, limit = 20 } = pagination;
+  const offset = (page - 1) * limit;
+
+  let query = supabase.from('notification_jobs').select('*', { count: 'exact' });
+
+  if (filters.status && filters.status.length > 0) {
+    query = query.in('status', filters.status);
+  }
+  if (filters.type && filters.type.length > 0) {
+    query = query.in('type', filters.type);
+  }
+  if (filters.entityType) {
+    query = query.eq('entity_type', filters.entityType);
+  }
+  if (filters.entityId) {
+    query = query.eq('entity_id', filters.entityId);
+  }
+
+  const { data, error, count } = await query
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (error) throw new Error(`Failed to get notification jobs: ${error.message}`);
+
+  return {
+    data: (data || []).map(mapToNotificationJob),
+    total: count || 0,
+    page,
+    limit,
+  };
+}
+
+export async function getNotificationJobCounts(): Promise<{
+  total: number;
+  pending: number;
+  sending: number;
+  sent: number;
+  failed: number;
+  canceled: number;
+}> {
+  const supabase = getSupabaseClient();
+
+  const { data, error } = await supabase
+    .from('notification_jobs')
+    .select('status');
+
+  if (error) throw new Error(`Failed to get notification job counts: ${error.message}`);
+
+  const counts = { total: 0, pending: 0, sending: 0, sent: 0, failed: 0, canceled: 0 };
+  for (const row of data || []) {
+    counts.total++;
+    switch (row.status) {
+      case 'PENDING': counts.pending++; break;
+      case 'SENDING': counts.sending++; break;
+      case 'SENT': counts.sent++; break;
+      case 'FAILED': counts.failed++; break;
+      case 'CANCELED': counts.canceled++; break;
+    }
+  }
+
+  return counts;
+}
+
+export async function cancelPendingNotificationJobsByEntity(
+  entityType: string,
+  entityId: string,
+  types?: NotificationType[]
+): Promise<number> {
+  const supabase = getSupabaseClient();
+
+  let query = supabase
+    .from('notification_jobs')
+    .update({ status: 'CANCELED', updated_at: new Date().toISOString() })
+    .eq('entity_type', entityType)
+    .eq('entity_id', entityId)
+    .eq('status', 'PENDING');
+
+  if (types && types.length > 0) {
+    query = query.in('type', types);
+  }
+
+  const { data, error } = await query.select();
+
+  if (error) throw new Error(`Failed to cancel notification jobs: ${error.message}`);
+  return data?.length ?? 0;
+}
+
+// ============================================
+// Notification Attempts
+// ============================================
+
+export async function createNotificationAttempt(
+  attempt: NotificationAttempt
+): Promise<NotificationAttempt> {
+  const supabase = getSupabaseClient();
+
+  const { data, error } = await supabase
+    .from('notification_attempts')
+    .insert({
+      id: attempt.id,
+      notification_job_id: attempt.notificationJobId,
+      attempt_number: attempt.attemptNumber,
+      status: attempt.status,
+      error: attempt.error,
+      provider_message_id: attempt.providerMessageId,
+      created_at: attempt.createdAt.toISOString(),
+    })
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to create notification attempt: ${error.message}`);
+  return mapToNotificationAttempt(data);
+}
+
+export async function getNotificationAttemptsByJobId(
+  notificationJobId: string
+): Promise<NotificationAttempt[]> {
+  const supabase = getSupabaseClient();
+
+  const { data, error } = await supabase
+    .from('notification_attempts')
+    .select()
+    .eq('notification_job_id', notificationJobId)
+    .order('attempt_number', { ascending: true });
+
+  if (error) throw new Error(`Failed to get notification attempts: ${error.message}`);
+  return (data || []).map(mapToNotificationAttempt);
+}
+
+// ============================================
 // Reset (for testing) - Truncates all tables
 // ============================================
 
@@ -1674,6 +1982,8 @@ export async function resetDatabase(): Promise<void> {
   const supabase = getSupabaseClient();
 
   // Delete in order respecting foreign key constraints
+  await supabase.from('notification_attempts').delete().neq('id', '');
+  await supabase.from('notification_jobs').delete().neq('id', '');
   await supabase.from('candidate_availability_blocks').delete().neq('id', '');
   await supabase.from('availability_requests').delete().neq('id', '');
   await supabase.from('audit_logs').delete().neq('id', '');
