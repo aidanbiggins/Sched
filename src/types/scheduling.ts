@@ -89,6 +89,9 @@ export interface InterviewerIdentity {
 export interface SchedulingRequest {
   id: string;
 
+  // Organization (multi-tenant)
+  organizationId: string | null; // FK to organizations
+
   // Context (from iCIMS or manual entry)
   applicationId: string | null; // iCIMS application ID
   candidateName: string;
@@ -322,6 +325,7 @@ export interface IcimsApplication {
 // ============================================
 
 export interface CreateSchedulingRequestInput {
+  organizationId?: string; // FK to organizations (set from session)
   applicationId?: string;
   candidateName: string;
   candidateEmail: string;
@@ -463,6 +467,17 @@ export interface AvailabilitySuggestion {
   interviewerEmails: string[];
   score: number;        // Higher is better
   rationale: string;    // e.g., "All interviewers available, earliest slot"
+  /** Enhanced score breakdown (M15 capacity scoring) */
+  enhancedScore?: {
+    availabilityScore: number;
+    timelinessScore: number;
+    timeOfDayScore: number;
+    loadBalanceScore: number;
+    capacityHeadroomScore: number;
+    preferenceMatchScore: number;
+    totalScore: number;
+    rationale: string[];
+  };
 }
 
 // ============================================

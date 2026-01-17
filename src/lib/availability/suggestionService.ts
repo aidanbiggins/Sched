@@ -17,6 +17,7 @@ import {
 import { getGraphCalendarClient } from '@/lib/graph';
 import { getCalendarClient } from '@/lib/calendar';
 import { isStandaloneMode } from '@/lib/config';
+import { calculateEnhancedScore } from '@/lib/capacity/enhancedScoring';
 
 const FIFTEEN_MINUTES = 15 * 60 * 1000;
 
@@ -31,6 +32,10 @@ const DEFAULT_WORKING_HOURS = {
 export interface SuggestionOptions {
   maxSuggestions?: number;
   preferEarlier?: boolean;
+  /** Enable capacity-aware scoring (M15) */
+  useCapacityScoring?: boolean;
+  /** Organization ID for capacity lookup */
+  organizationId?: string | null;
 }
 
 /**
@@ -223,7 +228,12 @@ export async function generateSuggestions(
   candidateBlocks: CandidateAvailabilityBlock[],
   options: SuggestionOptions = {}
 ): Promise<AvailabilitySuggestion[]> {
-  const { maxSuggestions = 10, preferEarlier = true } = options;
+  const {
+    maxSuggestions = 10,
+    preferEarlier = true,
+    useCapacityScoring = false,
+    organizationId = null,
+  } = options;
 
   if (candidateBlocks.length === 0) {
     return [];
@@ -259,20 +269,43 @@ export async function generateSuggestions(
     );
 
     if (availableInterviewers.length > 0) {
-      const { score, rationale } = scoreSuggestion(
-        slot.start,
-        availableInterviewers,
-        availabilityRequest.interviewerEmails.length,
-        preferEarlier
-      );
+      // Use enhanced capacity-aware scoring if enabled
+      if (useCapacityScoring) {
+        const enhancedScore = await calculateEnhancedScore({
+          slotStart: slot.start,
+          slotEnd: slot.end,
+          availableInterviewerEmails: availableInterviewers,
+          totalInterviewerEmails: availabilityRequest.interviewerEmails,
+          organizationId,
+          interviewType: availabilityRequest.interviewType,
+          preferEarlier,
+        });
 
-      suggestions.push({
-        startAt: slot.start,
-        endAt: slot.end,
-        interviewerEmails: availableInterviewers,
-        score,
-        rationale,
-      });
+        suggestions.push({
+          startAt: slot.start,
+          endAt: slot.end,
+          interviewerEmails: availableInterviewers,
+          score: enhancedScore.totalScore,
+          rationale: enhancedScore.rationale.join(', '),
+          enhancedScore,
+        });
+      } else {
+        // Use legacy scoring
+        const { score, rationale } = scoreSuggestion(
+          slot.start,
+          availableInterviewers,
+          availabilityRequest.interviewerEmails.length,
+          preferEarlier
+        );
+
+        suggestions.push({
+          startAt: slot.start,
+          endAt: slot.end,
+          interviewerEmails: availableInterviewers,
+          score,
+          rationale,
+        });
+      }
     }
   }
 

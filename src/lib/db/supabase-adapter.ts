@@ -35,6 +35,15 @@ import {
   NotificationType,
   NotificationEntityType,
 } from '@/types/scheduling';
+import {
+  InterviewerProfile,
+  InterviewerProfileInput,
+  InterviewerLoadRollup,
+  LoadRollupInput,
+  SchedulingRecommendation,
+  RecommendationInput,
+  RecommendationStatus,
+} from '@/types/capacity';
 // Database row types for mapping - using inline types for flexibility
 // until we generate proper types from a real Supabase project
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -59,6 +68,7 @@ type NotificationAttemptRow = any;
 function mapToSchedulingRequest(row: SchedulingRequestRow): SchedulingRequest {
   return {
     id: row.id,
+    organizationId: row.organization_id || null,
     applicationId: row.application_id,
     candidateName: row.candidate_name,
     candidateEmail: row.candidate_email,
@@ -284,6 +294,7 @@ export async function createSchedulingRequest(request: SchedulingRequest): Promi
     .from('scheduling_requests')
     .insert({
       id: request.id,
+      organization_id: request.organizationId,
       application_id: request.applicationId,
       candidate_name: request.candidateName,
       candidate_email: request.candidateEmail,
@@ -1975,6 +1986,671 @@ export async function getNotificationAttemptsByJobId(
 }
 
 // ============================================
+// Analytics Aggregation (M12)
+// ============================================
+
+export interface AnalyticsDataResult {
+  statusCounts: Record<string, number>;
+  interviewTypeCounts: Record<string, number>;
+  bookingStatusCounts: Record<string, number>;
+  cancellationReasons: Record<string, number>;
+}
+
+export async function getAnalyticsData(
+  start: Date,
+  end: Date,
+  userId?: string
+): Promise<AnalyticsDataResult> {
+  const supabase = getSupabaseClient();
+
+  // Query scheduling requests grouped by status
+  let statusQuery = supabase
+    .from('scheduling_requests')
+    .select('status')
+    .gte('created_at', start.toISOString())
+    .lte('created_at', end.toISOString());
+
+  if (userId) {
+    statusQuery = statusQuery.eq('created_by', userId);
+  }
+
+  const { data: requestsData, error: requestsError } = await statusQuery;
+  if (requestsError) throw new Error(`Failed to get request stats: ${requestsError.message}`);
+
+  // Count statuses and interview types
+  const statusCounts: Record<string, number> = {};
+  for (const row of requestsData || []) {
+    statusCounts[row.status] = (statusCounts[row.status] || 0) + 1;
+  }
+
+  // Query interview types
+  let typeQuery = supabase
+    .from('scheduling_requests')
+    .select('interview_type')
+    .gte('created_at', start.toISOString())
+    .lte('created_at', end.toISOString());
+
+  if (userId) {
+    typeQuery = typeQuery.eq('created_by', userId);
+  }
+
+  const { data: typesData, error: typesError } = await typeQuery;
+  if (typesError) throw new Error(`Failed to get type stats: ${typesError.message}`);
+
+  const interviewTypeCounts: Record<string, number> = {};
+  for (const row of typesData || []) {
+    interviewTypeCounts[row.interview_type] = (interviewTypeCounts[row.interview_type] || 0) + 1;
+  }
+
+  // Query bookings for status and cancellation reasons
+  // For user filtering, we need to join with scheduling_requests
+  let bookingsQuery = supabase
+    .from('bookings')
+    .select('status, cancellation_reason, request_id')
+    .gte('booked_at', start.toISOString())
+    .lte('booked_at', end.toISOString());
+
+  const { data: bookingsData, error: bookingsError } = await bookingsQuery;
+  if (bookingsError) throw new Error(`Failed to get booking stats: ${bookingsError.message}`);
+
+  const bookingStatusCounts: Record<string, number> = {};
+  const cancellationReasons: Record<string, number> = {};
+
+  // If we need to filter by user, get the user's request IDs first
+  let userRequestIds: Set<string> | null = null;
+  if (userId) {
+    const { data: userRequests } = await supabase
+      .from('scheduling_requests')
+      .select('id')
+      .eq('created_by', userId);
+    userRequestIds = new Set((userRequests || []).map(r => r.id));
+  }
+
+  for (const row of bookingsData || []) {
+    // Filter by user if needed
+    if (userRequestIds && row.request_id && !userRequestIds.has(row.request_id)) {
+      continue;
+    }
+
+    bookingStatusCounts[row.status] = (bookingStatusCounts[row.status] || 0) + 1;
+
+    if (row.status === 'cancelled') {
+      const reason = row.cancellation_reason || 'Not specified';
+      cancellationReasons[reason] = (cancellationReasons[reason] || 0) + 1;
+    }
+  }
+
+  return {
+    statusCounts,
+    interviewTypeCounts,
+    bookingStatusCounts,
+    cancellationReasons,
+  };
+}
+
+export async function getTimeToScheduleData(
+  start: Date,
+  end: Date,
+  userId?: string
+): Promise<number[]> {
+  const supabase = getSupabaseClient();
+
+  // Get bookings with their related requests
+  let query = supabase
+    .from('bookings')
+    .select('booked_at, request_id, scheduling_requests!inner(created_at, created_by)')
+    .gte('scheduling_requests.created_at', start.toISOString())
+    .lte('scheduling_requests.created_at', end.toISOString());
+
+  if (userId) {
+    query = query.eq('scheduling_requests.created_by', userId);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    // Fall back to a simpler query if the join fails
+    console.warn('Join query failed, using fallback:', error.message);
+    return [];
+  }
+
+  const timeToScheduleHours: number[] = [];
+  for (const row of data || []) {
+    const bookedAt = new Date(row.booked_at);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const createdAt = new Date((row.scheduling_requests as any).created_at);
+    const diffMs = bookedAt.getTime() - createdAt.getTime();
+    const diffHours = diffMs / (1000 * 60 * 60);
+    timeToScheduleHours.push(diffHours);
+  }
+
+  return timeToScheduleHours;
+}
+
+export async function getAuditActionCounts(
+  start: Date,
+  end: Date,
+  userId?: string
+): Promise<Record<string, number>> {
+  const supabase = getSupabaseClient();
+
+  let query = supabase
+    .from('audit_logs')
+    .select('action, request_id')
+    .gte('created_at', start.toISOString())
+    .lte('created_at', end.toISOString());
+
+  const { data, error } = await query;
+  if (error) throw new Error(`Failed to get audit stats: ${error.message}`);
+
+  // If we need to filter by user, get the user's request IDs first
+  let userRequestIds: Set<string> | null = null;
+  if (userId) {
+    const { data: userRequests } = await supabase
+      .from('scheduling_requests')
+      .select('id')
+      .eq('created_by', userId);
+    userRequestIds = new Set((userRequests || []).map(r => r.id));
+  }
+
+  const actionCounts: Record<string, number> = {};
+  for (const row of data || []) {
+    // Filter by user if needed
+    if (userRequestIds && row.request_id && !userRequestIds.has(row.request_id)) {
+      continue;
+    }
+
+    actionCounts[row.action] = (actionCounts[row.action] || 0) + 1;
+  }
+
+  return actionCounts;
+}
+
+// ============================================
+// Interviewer Profiles (M15 Capacity Planning)
+// ============================================
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+type InterviewerProfileRow = any;
+type LoadRollupRow = any;
+type RecommendationRow = any;
+/* eslint-enable @typescript-eslint/no-explicit-any */
+
+function mapToInterviewerProfile(row: InterviewerProfileRow): InterviewerProfile {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    email: row.email,
+    organizationId: row.organization_id,
+    maxInterviewsPerWeek: row.max_interviews_per_week,
+    maxInterviewsPerDay: row.max_interviews_per_day,
+    maxConcurrentPerDay: row.max_concurrent_per_day,
+    bufferMinutes: row.buffer_minutes,
+    preferredTimes: row.preferred_times || {},
+    blackoutDates: row.blackout_dates || [],
+    interviewTypePreferences: row.interview_type_preferences || [],
+    tags: row.tags || [],
+    skillAreas: row.skill_areas || [],
+    seniorityLevels: row.seniority_levels || [],
+    isActive: row.is_active,
+    lastCapacityOverrideAt: row.last_capacity_override_at ? new Date(row.last_capacity_override_at) : null,
+    lastCapacityOverrideBy: row.last_capacity_override_by,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+  };
+}
+
+export async function createInterviewerProfile(input: InterviewerProfileInput): Promise<InterviewerProfile> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('interviewer_profiles')
+    .insert({
+      user_id: input.userId || null,
+      email: input.email,
+      organization_id: input.organizationId || null,
+      max_interviews_per_week: input.maxInterviewsPerWeek ?? 10,
+      max_interviews_per_day: input.maxInterviewsPerDay ?? 3,
+      max_concurrent_per_day: input.maxConcurrentPerDay ?? 2,
+      buffer_minutes: input.bufferMinutes ?? 15,
+      preferred_times: input.preferredTimes ?? {},
+      blackout_dates: input.blackoutDates ?? [],
+      interview_type_preferences: input.interviewTypePreferences ?? [],
+      tags: input.tags ?? [],
+      skill_areas: input.skillAreas ?? [],
+      seniority_levels: input.seniorityLevels ?? [],
+      is_active: input.isActive ?? true,
+    })
+    .select()
+    .single();
+  if (error) throw new Error(`Failed to create interviewer profile: ${error.message}`);
+  return mapToInterviewerProfile(data);
+}
+
+export async function getInterviewerProfileById(id: string): Promise<InterviewerProfile | null> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('interviewer_profiles')
+    .select('*')
+    .eq('id', id)
+    .single();
+  if (error && error.code !== 'PGRST116') throw new Error(`Failed to get profile: ${error.message}`);
+  return data ? mapToInterviewerProfile(data) : null;
+}
+
+export async function getInterviewerProfileByEmail(
+  email: string,
+  organizationId?: string
+): Promise<InterviewerProfile | null> {
+  const supabase = getSupabaseClient();
+  let query = supabase
+    .from('interviewer_profiles')
+    .select('*')
+    .ilike('email', email);
+  if (organizationId) {
+    query = query.eq('organization_id', organizationId);
+  }
+  const { data, error } = await query.limit(1).single();
+  if (error && error.code !== 'PGRST116') throw new Error(`Failed to get profile by email: ${error.message}`);
+  return data ? mapToInterviewerProfile(data) : null;
+}
+
+export async function getInterviewerProfilesByOrg(organizationId: string): Promise<InterviewerProfile[]> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('interviewer_profiles')
+    .select('*')
+    .eq('organization_id', organizationId)
+    .order('email');
+  if (error) throw new Error(`Failed to get profiles: ${error.message}`);
+  return (data || []).map(mapToInterviewerProfile);
+}
+
+export async function getActiveInterviewerProfiles(organizationId?: string): Promise<InterviewerProfile[]> {
+  const supabase = getSupabaseClient();
+  let query = supabase
+    .from('interviewer_profiles')
+    .select('*')
+    .eq('is_active', true);
+  if (organizationId) {
+    query = query.eq('organization_id', organizationId);
+  }
+  const { data, error } = await query.order('email');
+  if (error) throw new Error(`Failed to get active profiles: ${error.message}`);
+  return (data || []).map(mapToInterviewerProfile);
+}
+
+export async function updateInterviewerProfile(
+  id: string,
+  updates: Partial<InterviewerProfileInput>
+): Promise<InterviewerProfile | null> {
+  const supabase = getSupabaseClient();
+  const updateData: Record<string, unknown> = { updated_at: new Date().toISOString() };
+
+  if (updates.email !== undefined) updateData.email = updates.email;
+  if (updates.userId !== undefined) updateData.user_id = updates.userId;
+  if (updates.maxInterviewsPerWeek !== undefined) updateData.max_interviews_per_week = updates.maxInterviewsPerWeek;
+  if (updates.maxInterviewsPerDay !== undefined) updateData.max_interviews_per_day = updates.maxInterviewsPerDay;
+  if (updates.maxConcurrentPerDay !== undefined) updateData.max_concurrent_per_day = updates.maxConcurrentPerDay;
+  if (updates.bufferMinutes !== undefined) updateData.buffer_minutes = updates.bufferMinutes;
+  if (updates.preferredTimes !== undefined) updateData.preferred_times = updates.preferredTimes;
+  if (updates.blackoutDates !== undefined) updateData.blackout_dates = updates.blackoutDates;
+  if (updates.interviewTypePreferences !== undefined) updateData.interview_type_preferences = updates.interviewTypePreferences;
+  if (updates.tags !== undefined) updateData.tags = updates.tags;
+  if (updates.skillAreas !== undefined) updateData.skill_areas = updates.skillAreas;
+  if (updates.seniorityLevels !== undefined) updateData.seniority_levels = updates.seniorityLevels;
+  if (updates.isActive !== undefined) updateData.is_active = updates.isActive;
+
+  const { data, error } = await supabase
+    .from('interviewer_profiles')
+    .update(updateData)
+    .eq('id', id)
+    .select()
+    .single();
+  if (error && error.code !== 'PGRST116') throw new Error(`Failed to update profile: ${error.message}`);
+  return data ? mapToInterviewerProfile(data) : null;
+}
+
+export async function deleteInterviewerProfile(id: string): Promise<boolean> {
+  const supabase = getSupabaseClient();
+  const { error } = await supabase
+    .from('interviewer_profiles')
+    .delete()
+    .eq('id', id);
+  if (error) throw new Error(`Failed to delete profile: ${error.message}`);
+  return true;
+}
+
+// ============================================
+// Load Rollups (M15 Capacity Planning)
+// ============================================
+
+function mapToLoadRollup(row: LoadRollupRow): InterviewerLoadRollup {
+  return {
+    id: row.id,
+    interviewerProfileId: row.interviewer_profile_id,
+    organizationId: row.organization_id,
+    weekStart: new Date(row.week_start),
+    weekEnd: new Date(row.week_end),
+    scheduledCount: row.scheduled_count,
+    completedCount: row.completed_count,
+    cancelledCount: row.cancelled_count,
+    rescheduledCount: row.rescheduled_count,
+    utilizationPct: parseFloat(row.utilization_pct),
+    peakDayCount: row.peak_day_count,
+    avgDailyCount: parseFloat(row.avg_daily_count),
+    byInterviewType: row.by_interview_type || {},
+    byDayOfWeek: row.by_day_of_week || {},
+    byHourOfDay: row.by_hour_of_day || {},
+    atCapacity: row.at_capacity,
+    overCapacity: row.over_capacity,
+    computedAt: new Date(row.computed_at),
+    computationDurationMs: row.computation_duration_ms,
+  };
+}
+
+export async function createLoadRollup(input: LoadRollupInput): Promise<InterviewerLoadRollup> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('interviewer_load_rollups')
+    .insert({
+      interviewer_profile_id: input.interviewerProfileId,
+      organization_id: input.organizationId,
+      week_start: input.weekStart.toISOString().split('T')[0],
+      week_end: input.weekEnd.toISOString().split('T')[0],
+      scheduled_count: input.scheduledCount,
+      completed_count: input.completedCount,
+      cancelled_count: input.cancelledCount,
+      rescheduled_count: input.rescheduledCount,
+      utilization_pct: input.utilizationPct,
+      peak_day_count: input.peakDayCount,
+      avg_daily_count: input.avgDailyCount,
+      by_interview_type: input.byInterviewType,
+      by_day_of_week: input.byDayOfWeek,
+      by_hour_of_day: input.byHourOfDay,
+      at_capacity: input.atCapacity,
+      over_capacity: input.overCapacity,
+      computation_duration_ms: input.computationDurationMs,
+    })
+    .select()
+    .single();
+  if (error) throw new Error(`Failed to create load rollup: ${error.message}`);
+  return mapToLoadRollup(data);
+}
+
+export async function getLoadRollupById(id: string): Promise<InterviewerLoadRollup | null> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('interviewer_load_rollups')
+    .select('*')
+    .eq('id', id)
+    .single();
+  if (error && error.code !== 'PGRST116') throw new Error(`Failed to get rollup: ${error.message}`);
+  return data ? mapToLoadRollup(data) : null;
+}
+
+export async function getLoadRollupByProfileAndWeek(
+  interviewerProfileId: string,
+  weekStart: Date
+): Promise<InterviewerLoadRollup | null> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('interviewer_load_rollups')
+    .select('*')
+    .eq('interviewer_profile_id', interviewerProfileId)
+    .eq('week_start', weekStart.toISOString().split('T')[0])
+    .single();
+  if (error && error.code !== 'PGRST116') throw new Error(`Failed to get rollup: ${error.message}`);
+  return data ? mapToLoadRollup(data) : null;
+}
+
+export async function getLoadRollupsByOrg(
+  organizationId: string,
+  weekStart?: Date
+): Promise<InterviewerLoadRollup[]> {
+  const supabase = getSupabaseClient();
+  let query = supabase
+    .from('interviewer_load_rollups')
+    .select('*')
+    .eq('organization_id', organizationId);
+  if (weekStart) {
+    query = query.eq('week_start', weekStart.toISOString().split('T')[0]);
+  }
+  const { data, error } = await query.order('week_start', { ascending: false });
+  if (error) throw new Error(`Failed to get rollups: ${error.message}`);
+  return (data || []).map(mapToLoadRollup);
+}
+
+export async function upsertLoadRollup(input: LoadRollupInput): Promise<InterviewerLoadRollup> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('interviewer_load_rollups')
+    .upsert({
+      interviewer_profile_id: input.interviewerProfileId,
+      organization_id: input.organizationId,
+      week_start: input.weekStart.toISOString().split('T')[0],
+      week_end: input.weekEnd.toISOString().split('T')[0],
+      scheduled_count: input.scheduledCount,
+      completed_count: input.completedCount,
+      cancelled_count: input.cancelledCount,
+      rescheduled_count: input.rescheduledCount,
+      utilization_pct: input.utilizationPct,
+      peak_day_count: input.peakDayCount,
+      avg_daily_count: input.avgDailyCount,
+      by_interview_type: input.byInterviewType,
+      by_day_of_week: input.byDayOfWeek,
+      by_hour_of_day: input.byHourOfDay,
+      at_capacity: input.atCapacity,
+      over_capacity: input.overCapacity,
+      computation_duration_ms: input.computationDurationMs,
+      computed_at: new Date().toISOString(),
+    }, {
+      onConflict: 'interviewer_profile_id,week_start',
+    })
+    .select()
+    .single();
+  if (error) throw new Error(`Failed to upsert load rollup: ${error.message}`);
+  return mapToLoadRollup(data);
+}
+
+export async function getAtCapacityInterviewers(
+  organizationId: string,
+  weekStart: Date
+): Promise<InterviewerLoadRollup[]> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('interviewer_load_rollups')
+    .select('*')
+    .eq('organization_id', organizationId)
+    .eq('week_start', weekStart.toISOString().split('T')[0])
+    .eq('at_capacity', true);
+  if (error) throw new Error(`Failed to get at-capacity interviewers: ${error.message}`);
+  return (data || []).map(mapToLoadRollup);
+}
+
+export async function getOverCapacityInterviewers(
+  organizationId: string,
+  weekStart: Date
+): Promise<InterviewerLoadRollup[]> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('interviewer_load_rollups')
+    .select('*')
+    .eq('organization_id', organizationId)
+    .eq('week_start', weekStart.toISOString().split('T')[0])
+    .eq('over_capacity', true);
+  if (error) throw new Error(`Failed to get over-capacity interviewers: ${error.message}`);
+  return (data || []).map(mapToLoadRollup);
+}
+
+// ============================================
+// Scheduling Recommendations (M15 Capacity Planning)
+// ============================================
+
+function mapToRecommendation(row: RecommendationRow): SchedulingRecommendation {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    schedulingRequestId: row.scheduling_request_id,
+    availabilityRequestId: row.availability_request_id,
+    recommendationType: row.recommendation_type,
+    priority: row.priority,
+    title: row.title,
+    description: row.description,
+    evidence: row.evidence,
+    suggestedAction: row.suggested_action,
+    actionData: row.action_data,
+    status: row.status,
+    dismissedAt: row.dismissed_at ? new Date(row.dismissed_at) : null,
+    dismissedBy: row.dismissed_by,
+    dismissedReason: row.dismissed_reason,
+    actedAt: row.acted_at ? new Date(row.acted_at) : null,
+    actedBy: row.acted_by,
+    expiresAt: row.expires_at ? new Date(row.expires_at) : null,
+    createdAt: new Date(row.created_at),
+  };
+}
+
+export async function createRecommendation(input: RecommendationInput): Promise<SchedulingRecommendation> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('scheduling_recommendations')
+    .insert({
+      organization_id: input.organizationId,
+      scheduling_request_id: input.schedulingRequestId || null,
+      availability_request_id: input.availabilityRequestId || null,
+      recommendation_type: input.recommendationType,
+      priority: input.priority,
+      title: input.title,
+      description: input.description,
+      evidence: input.evidence,
+      suggested_action: input.suggestedAction || null,
+      action_data: input.actionData || null,
+      expires_at: input.expiresAt?.toISOString() || null,
+    })
+    .select()
+    .single();
+  if (error) throw new Error(`Failed to create recommendation: ${error.message}`);
+  return mapToRecommendation(data);
+}
+
+export async function getRecommendationById(id: string): Promise<SchedulingRecommendation | null> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('scheduling_recommendations')
+    .select('*')
+    .eq('id', id)
+    .single();
+  if (error && error.code !== 'PGRST116') throw new Error(`Failed to get recommendation: ${error.message}`);
+  return data ? mapToRecommendation(data) : null;
+}
+
+export async function getRecommendationsByOrg(
+  organizationId: string,
+  status?: RecommendationStatus
+): Promise<SchedulingRecommendation[]> {
+  const supabase = getSupabaseClient();
+  let query = supabase
+    .from('scheduling_recommendations')
+    .select('*')
+    .eq('organization_id', organizationId);
+  if (status) {
+    query = query.eq('status', status);
+  }
+  const { data, error } = await query
+    .order('priority')
+    .order('created_at', { ascending: false });
+  if (error) throw new Error(`Failed to get recommendations: ${error.message}`);
+  return (data || []).map(mapToRecommendation);
+}
+
+export async function getRecommendationsByRequest(
+  schedulingRequestId: string
+): Promise<SchedulingRecommendation[]> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('scheduling_recommendations')
+    .select('*')
+    .eq('scheduling_request_id', schedulingRequestId)
+    .order('created_at', { ascending: false });
+  if (error) throw new Error(`Failed to get recommendations by request: ${error.message}`);
+  return (data || []).map(mapToRecommendation);
+}
+
+export async function getActiveRecommendationsByType(
+  organizationId: string,
+  recommendationType: string
+): Promise<SchedulingRecommendation[]> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('scheduling_recommendations')
+    .select('*')
+    .eq('organization_id', organizationId)
+    .eq('recommendation_type', recommendationType)
+    .eq('status', 'active');
+  if (error) throw new Error(`Failed to get recommendations by type: ${error.message}`);
+  return (data || []).map(mapToRecommendation);
+}
+
+export async function updateRecommendation(
+  id: string,
+  updates: Partial<Pick<SchedulingRecommendation, 'status' | 'dismissedAt' | 'dismissedBy' | 'dismissedReason' | 'actedAt' | 'actedBy'>>
+): Promise<SchedulingRecommendation | null> {
+  const supabase = getSupabaseClient();
+  const updateData: Record<string, unknown> = {};
+
+  if (updates.status !== undefined) updateData.status = updates.status;
+  if (updates.dismissedAt !== undefined) updateData.dismissed_at = updates.dismissedAt?.toISOString();
+  if (updates.dismissedBy !== undefined) updateData.dismissed_by = updates.dismissedBy;
+  if (updates.dismissedReason !== undefined) updateData.dismissed_reason = updates.dismissedReason;
+  if (updates.actedAt !== undefined) updateData.acted_at = updates.actedAt?.toISOString();
+  if (updates.actedBy !== undefined) updateData.acted_by = updates.actedBy;
+
+  const { data, error } = await supabase
+    .from('scheduling_recommendations')
+    .update(updateData)
+    .eq('id', id)
+    .select()
+    .single();
+  if (error && error.code !== 'PGRST116') throw new Error(`Failed to update recommendation: ${error.message}`);
+  return data ? mapToRecommendation(data) : null;
+}
+
+export async function dismissRecommendation(
+  id: string,
+  dismissedBy: string,
+  reason?: string
+): Promise<SchedulingRecommendation | null> {
+  return updateRecommendation(id, {
+    status: 'dismissed',
+    dismissedAt: new Date(),
+    dismissedBy,
+    dismissedReason: reason || null,
+  });
+}
+
+export async function markRecommendationActed(
+  id: string,
+  actedBy: string
+): Promise<SchedulingRecommendation | null> {
+  return updateRecommendation(id, {
+    status: 'acted',
+    actedAt: new Date(),
+    actedBy,
+  });
+}
+
+export async function expireOldRecommendations(): Promise<number> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('scheduling_recommendations')
+    .update({ status: 'expired' })
+    .eq('status', 'active')
+    .lt('expires_at', new Date().toISOString())
+    .select();
+  if (error) throw new Error(`Failed to expire recommendations: ${error.message}`);
+  return (data || []).length;
+}
+
+// ============================================
 // Reset (for testing) - Truncates all tables
 // ============================================
 
@@ -1982,6 +2658,9 @@ export async function resetDatabase(): Promise<void> {
   const supabase = getSupabaseClient();
 
   // Delete in order respecting foreign key constraints
+  await supabase.from('scheduling_recommendations').delete().neq('id', '');
+  await supabase.from('interviewer_load_rollups').delete().neq('id', '');
+  await supabase.from('interviewer_profiles').delete().neq('id', '');
   await supabase.from('notification_attempts').delete().neq('id', '');
   await supabase.from('notification_jobs').delete().neq('id', '');
   await supabase.from('candidate_availability_blocks').delete().neq('id', '');

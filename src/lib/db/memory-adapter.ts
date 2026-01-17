@@ -25,6 +25,15 @@ import {
   NotificationStatus,
   NotificationType,
 } from '@/types/scheduling';
+import {
+  InterviewerProfile,
+  InterviewerProfileInput,
+  InterviewerLoadRollup,
+  LoadRollupInput,
+  SchedulingRecommendation,
+  RecommendationInput,
+  RecommendationStatus,
+} from '@/types/capacity';
 
 // ============================================
 // In-Memory Store
@@ -43,6 +52,9 @@ interface Store {
   candidateAvailabilityBlocks: Map<string, CandidateAvailabilityBlock>;
   notificationJobs: Map<string, NotificationJob>;
   notificationAttempts: Map<string, NotificationAttempt>;
+  interviewerProfiles: Map<string, InterviewerProfile>;
+  loadRollups: Map<string, InterviewerLoadRollup>;
+  recommendations: Map<string, SchedulingRecommendation>;
 }
 
 const store: Store = {
@@ -58,6 +70,9 @@ const store: Store = {
   candidateAvailabilityBlocks: new Map(),
   notificationJobs: new Map(),
   notificationAttempts: new Map(),
+  interviewerProfiles: new Map(),
+  loadRollups: new Map(),
+  recommendations: new Map(),
 };
 
 // ============================================
@@ -1012,6 +1027,435 @@ export async function getNotificationAttemptsByJobId(
 }
 
 // ============================================
+// Analytics Aggregation (M12)
+// ============================================
+
+export interface AnalyticsDataResult {
+  statusCounts: Record<string, number>;
+  interviewTypeCounts: Record<string, number>;
+  bookingStatusCounts: Record<string, number>;
+  cancellationReasons: Record<string, number>;
+}
+
+export async function getAnalyticsData(
+  start: Date,
+  end: Date,
+  userId?: string
+): Promise<AnalyticsDataResult> {
+  const statusCounts: Record<string, number> = {};
+  const interviewTypeCounts: Record<string, number> = {};
+  const bookingStatusCounts: Record<string, number> = {};
+  const cancellationReasons: Record<string, number> = {};
+
+  // Count scheduling requests
+  for (const request of Array.from(store.schedulingRequests.values())) {
+    // Filter by date range
+    if (request.createdAt < start || request.createdAt > end) continue;
+    // Filter by user if specified
+    if (userId && request.createdBy !== userId) continue;
+
+    // Count by status
+    statusCounts[request.status] = (statusCounts[request.status] || 0) + 1;
+
+    // Count by interview type
+    interviewTypeCounts[request.interviewType] =
+      (interviewTypeCounts[request.interviewType] || 0) + 1;
+  }
+
+  // Count bookings and cancellation reasons
+  for (const booking of Array.from(store.bookings.values())) {
+    // Filter by date range
+    if (booking.bookedAt < start || booking.bookedAt > end) continue;
+
+    // If userId filter is set, we need to check if the related request belongs to this user
+    if (userId && booking.requestId) {
+      const request = store.schedulingRequests.get(booking.requestId);
+      if (!request || request.createdBy !== userId) continue;
+    }
+
+    // Count by booking status
+    bookingStatusCounts[booking.status] =
+      (bookingStatusCounts[booking.status] || 0) + 1;
+
+    // Count cancellation reasons
+    if (booking.status === 'cancelled') {
+      const reason = booking.cancellationReason || 'Not specified';
+      cancellationReasons[reason] = (cancellationReasons[reason] || 0) + 1;
+    }
+  }
+
+  return {
+    statusCounts,
+    interviewTypeCounts,
+    bookingStatusCounts,
+    cancellationReasons,
+  };
+}
+
+export async function getTimeToScheduleData(
+  start: Date,
+  end: Date,
+  userId?: string
+): Promise<number[]> {
+  const timeToScheduleHours: number[] = [];
+
+  for (const booking of Array.from(store.bookings.values())) {
+    if (!booking.requestId) continue;
+
+    const request = store.schedulingRequests.get(booking.requestId);
+    if (!request) continue;
+
+    // Filter by date range (use request creation date)
+    if (request.createdAt < start || request.createdAt > end) continue;
+
+    // Filter by user if specified
+    if (userId && request.createdBy !== userId) continue;
+
+    // Calculate time-to-schedule in hours
+    const diffMs = booking.bookedAt.getTime() - request.createdAt.getTime();
+    const diffHours = diffMs / (1000 * 60 * 60);
+    timeToScheduleHours.push(diffHours);
+  }
+
+  return timeToScheduleHours;
+}
+
+export async function getAuditActionCounts(
+  start: Date,
+  end: Date,
+  userId?: string
+): Promise<Record<string, number>> {
+  const actionCounts: Record<string, number> = {};
+
+  for (const log of store.auditLogs) {
+    // Filter by date range
+    if (log.createdAt < start || log.createdAt > end) continue;
+
+    // Filter by user if specified
+    if (userId && log.requestId) {
+      const request = store.schedulingRequests.get(log.requestId);
+      if (!request || request.createdBy !== userId) continue;
+    }
+
+    // Count by action
+    actionCounts[log.action] = (actionCounts[log.action] || 0) + 1;
+  }
+
+  return actionCounts;
+}
+
+// ============================================
+// Interviewer Profiles
+// ============================================
+
+export async function createInterviewerProfile(input: InterviewerProfileInput): Promise<InterviewerProfile> {
+  const id = crypto.randomUUID();
+  const now = new Date();
+  const profile: InterviewerProfile = {
+    id,
+    userId: input.userId || null,
+    email: input.email,
+    organizationId: input.organizationId || null,
+    maxInterviewsPerWeek: input.maxInterviewsPerWeek ?? 10,
+    maxInterviewsPerDay: input.maxInterviewsPerDay ?? 3,
+    maxConcurrentPerDay: input.maxConcurrentPerDay ?? 2,
+    bufferMinutes: input.bufferMinutes ?? 15,
+    preferredTimes: input.preferredTimes ?? {},
+    blackoutDates: input.blackoutDates ?? [],
+    interviewTypePreferences: input.interviewTypePreferences ?? [],
+    tags: input.tags ?? [],
+    skillAreas: input.skillAreas ?? [],
+    seniorityLevels: input.seniorityLevels ?? [],
+    isActive: input.isActive ?? true,
+    lastCapacityOverrideAt: null,
+    lastCapacityOverrideBy: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  store.interviewerProfiles.set(id, profile);
+  return profile;
+}
+
+export async function getInterviewerProfileById(id: string): Promise<InterviewerProfile | null> {
+  return store.interviewerProfiles.get(id) || null;
+}
+
+export async function getInterviewerProfileByEmail(
+  email: string,
+  organizationId?: string
+): Promise<InterviewerProfile | null> {
+  const emailLower = email.toLowerCase();
+  for (const profile of Array.from(store.interviewerProfiles.values())) {
+    if (profile.email.toLowerCase() === emailLower) {
+      if (organizationId && profile.organizationId !== organizationId) continue;
+      return profile;
+    }
+  }
+  return null;
+}
+
+export async function getInterviewerProfilesByOrg(organizationId: string): Promise<InterviewerProfile[]> {
+  return Array.from(store.interviewerProfiles.values())
+    .filter(p => p.organizationId === organizationId)
+    .sort((a, b) => a.email.localeCompare(b.email));
+}
+
+export async function getActiveInterviewerProfiles(organizationId?: string): Promise<InterviewerProfile[]> {
+  return Array.from(store.interviewerProfiles.values())
+    .filter(p => p.isActive && (!organizationId || p.organizationId === organizationId))
+    .sort((a, b) => a.email.localeCompare(b.email));
+}
+
+export async function updateInterviewerProfile(
+  id: string,
+  updates: Partial<InterviewerProfileInput>
+): Promise<InterviewerProfile | null> {
+  const existing = store.interviewerProfiles.get(id);
+  if (!existing) return null;
+
+  const updated: InterviewerProfile = {
+    ...existing,
+    ...updates,
+    updatedAt: new Date(),
+  };
+  store.interviewerProfiles.set(id, updated);
+  return updated;
+}
+
+export async function deleteInterviewerProfile(id: string): Promise<boolean> {
+  return store.interviewerProfiles.delete(id);
+}
+
+// ============================================
+// Load Rollups
+// ============================================
+
+export async function createLoadRollup(input: LoadRollupInput): Promise<InterviewerLoadRollup> {
+  const id = crypto.randomUUID();
+  const rollup: InterviewerLoadRollup = {
+    id,
+    interviewerProfileId: input.interviewerProfileId,
+    organizationId: input.organizationId,
+    weekStart: input.weekStart,
+    weekEnd: input.weekEnd,
+    scheduledCount: input.scheduledCount,
+    completedCount: input.completedCount,
+    cancelledCount: input.cancelledCount,
+    rescheduledCount: input.rescheduledCount,
+    utilizationPct: input.utilizationPct,
+    peakDayCount: input.peakDayCount,
+    avgDailyCount: input.avgDailyCount,
+    byInterviewType: input.byInterviewType,
+    byDayOfWeek: input.byDayOfWeek,
+    byHourOfDay: input.byHourOfDay,
+    atCapacity: input.atCapacity,
+    overCapacity: input.overCapacity,
+    computedAt: new Date(),
+    computationDurationMs: input.computationDurationMs ?? null,
+  };
+  store.loadRollups.set(id, rollup);
+  return rollup;
+}
+
+export async function getLoadRollupById(id: string): Promise<InterviewerLoadRollup | null> {
+  return store.loadRollups.get(id) || null;
+}
+
+export async function getLoadRollupByProfileAndWeek(
+  interviewerProfileId: string,
+  weekStart: Date
+): Promise<InterviewerLoadRollup | null> {
+  const weekStartTime = weekStart.getTime();
+  for (const rollup of Array.from(store.loadRollups.values())) {
+    if (
+      rollup.interviewerProfileId === interviewerProfileId &&
+      rollup.weekStart.getTime() === weekStartTime
+    ) {
+      return rollup;
+    }
+  }
+  return null;
+}
+
+export async function getLoadRollupsByOrg(
+  organizationId: string,
+  weekStart?: Date
+): Promise<InterviewerLoadRollup[]> {
+  return Array.from(store.loadRollups.values())
+    .filter(r => {
+      if (r.organizationId !== organizationId) return false;
+      if (weekStart && r.weekStart.getTime() !== weekStart.getTime()) return false;
+      return true;
+    })
+    .sort((a, b) => b.weekStart.getTime() - a.weekStart.getTime());
+}
+
+export async function upsertLoadRollup(input: LoadRollupInput): Promise<InterviewerLoadRollup> {
+  const existing = await getLoadRollupByProfileAndWeek(input.interviewerProfileId, input.weekStart);
+  if (existing) {
+    const updated: InterviewerLoadRollup = {
+      ...existing,
+      ...input,
+      computedAt: new Date(),
+    };
+    store.loadRollups.set(existing.id, updated);
+    return updated;
+  }
+  return createLoadRollup(input);
+}
+
+export async function getAtCapacityInterviewers(
+  organizationId: string,
+  weekStart: Date
+): Promise<InterviewerLoadRollup[]> {
+  return Array.from(store.loadRollups.values())
+    .filter(r =>
+      r.organizationId === organizationId &&
+      r.weekStart.getTime() === weekStart.getTime() &&
+      r.atCapacity
+    );
+}
+
+export async function getOverCapacityInterviewers(
+  organizationId: string,
+  weekStart: Date
+): Promise<InterviewerLoadRollup[]> {
+  return Array.from(store.loadRollups.values())
+    .filter(r =>
+      r.organizationId === organizationId &&
+      r.weekStart.getTime() === weekStart.getTime() &&
+      r.overCapacity
+    );
+}
+
+// ============================================
+// Scheduling Recommendations
+// ============================================
+
+export async function createRecommendation(input: RecommendationInput): Promise<SchedulingRecommendation> {
+  const id = crypto.randomUUID();
+  const recommendation: SchedulingRecommendation = {
+    id,
+    organizationId: input.organizationId,
+    schedulingRequestId: input.schedulingRequestId || null,
+    availabilityRequestId: input.availabilityRequestId || null,
+    recommendationType: input.recommendationType,
+    priority: input.priority,
+    title: input.title,
+    description: input.description,
+    evidence: input.evidence,
+    suggestedAction: input.suggestedAction || null,
+    actionData: input.actionData || null,
+    status: 'active',
+    dismissedAt: null,
+    dismissedBy: null,
+    dismissedReason: null,
+    actedAt: null,
+    actedBy: null,
+    expiresAt: input.expiresAt || null,
+    createdAt: new Date(),
+  };
+  store.recommendations.set(id, recommendation);
+  return recommendation;
+}
+
+export async function getRecommendationById(id: string): Promise<SchedulingRecommendation | null> {
+  return store.recommendations.get(id) || null;
+}
+
+export async function getRecommendationsByOrg(
+  organizationId: string,
+  status?: RecommendationStatus
+): Promise<SchedulingRecommendation[]> {
+  return Array.from(store.recommendations.values())
+    .filter(r => {
+      if (r.organizationId !== organizationId) return false;
+      if (status && r.status !== status) return false;
+      return true;
+    })
+    .sort((a, b) => {
+      // Sort by priority (critical first), then by date
+      const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+      const priorityDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
+      if (priorityDiff !== 0) return priorityDiff;
+      return b.createdAt.getTime() - a.createdAt.getTime();
+    });
+}
+
+export async function getRecommendationsByRequest(
+  schedulingRequestId: string
+): Promise<SchedulingRecommendation[]> {
+  return Array.from(store.recommendations.values())
+    .filter(r => r.schedulingRequestId === schedulingRequestId)
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+}
+
+export async function getActiveRecommendationsByType(
+  organizationId: string,
+  recommendationType: string
+): Promise<SchedulingRecommendation[]> {
+  return Array.from(store.recommendations.values())
+    .filter(r =>
+      r.organizationId === organizationId &&
+      r.recommendationType === recommendationType &&
+      r.status === 'active'
+    );
+}
+
+export async function updateRecommendation(
+  id: string,
+  updates: Partial<Pick<SchedulingRecommendation, 'status' | 'dismissedAt' | 'dismissedBy' | 'dismissedReason' | 'actedAt' | 'actedBy'>>
+): Promise<SchedulingRecommendation | null> {
+  const existing = store.recommendations.get(id);
+  if (!existing) return null;
+
+  const updated: SchedulingRecommendation = {
+    ...existing,
+    ...updates,
+  };
+  store.recommendations.set(id, updated);
+  return updated;
+}
+
+export async function dismissRecommendation(
+  id: string,
+  dismissedBy: string,
+  reason?: string
+): Promise<SchedulingRecommendation | null> {
+  return updateRecommendation(id, {
+    status: 'dismissed',
+    dismissedAt: new Date(),
+    dismissedBy,
+    dismissedReason: reason || null,
+  });
+}
+
+export async function markRecommendationActed(
+  id: string,
+  actedBy: string
+): Promise<SchedulingRecommendation | null> {
+  return updateRecommendation(id, {
+    status: 'acted',
+    actedAt: new Date(),
+    actedBy,
+  });
+}
+
+export async function expireOldRecommendations(): Promise<number> {
+  const now = new Date();
+  let expiredCount = 0;
+
+  for (const [id, rec] of store.recommendations) {
+    if (rec.status === 'active' && rec.expiresAt && rec.expiresAt < now) {
+      store.recommendations.set(id, { ...rec, status: 'expired' });
+      expiredCount++;
+    }
+  }
+
+  return expiredCount;
+}
+
+// ============================================
 // Reset (for testing)
 // ============================================
 
@@ -1028,4 +1472,7 @@ export function resetDatabase(): void {
   store.candidateAvailabilityBlocks.clear();
   store.notificationJobs.clear();
   store.notificationAttempts.clear();
+  store.interviewerProfiles.clear();
+  store.loadRollups.clear();
+  store.recommendations.clear();
 }

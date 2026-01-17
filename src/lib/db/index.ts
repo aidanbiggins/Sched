@@ -19,6 +19,7 @@ export type {
   SchedulingRequestFilters,
   PaginationOptions,
   PaginatedResult,
+  AnalyticsDataResult,
 } from './memory-adapter';
 
 // ============================================
@@ -351,6 +352,22 @@ export const resetDatabase = isSupabase
   : memoryAdapter.resetDatabase;
 
 // ============================================
+// Analytics (M12)
+// ============================================
+
+export const getAnalyticsData = isSupabase
+  ? supabaseAdapter.getAnalyticsData
+  : memoryAdapter.getAnalyticsData;
+
+export const getTimeToScheduleData = isSupabase
+  ? supabaseAdapter.getTimeToScheduleData
+  : memoryAdapter.getTimeToScheduleData;
+
+export const getAuditActionCounts = isSupabase
+  ? supabaseAdapter.getAuditActionCounts
+  : memoryAdapter.getAuditActionCounts;
+
+// ============================================
 // Utility: Check which adapter is active
 // ============================================
 
@@ -400,3 +417,107 @@ export {
   cleanupExpiredInvites,
   resetInvitesStore,
 } from './invites';
+
+// ============================================
+// Interviewer Profiles (M15 Capacity Planning)
+// ============================================
+
+export const createInterviewerProfile = isSupabase
+  ? supabaseAdapter.createInterviewerProfile
+  : memoryAdapter.createInterviewerProfile;
+
+export const getInterviewerProfileById = isSupabase
+  ? supabaseAdapter.getInterviewerProfileById
+  : memoryAdapter.getInterviewerProfileById;
+
+export const getInterviewerProfileByEmail = isSupabase
+  ? supabaseAdapter.getInterviewerProfileByEmail
+  : memoryAdapter.getInterviewerProfileByEmail;
+
+export const getInterviewerProfilesByOrg = isSupabase
+  ? supabaseAdapter.getInterviewerProfilesByOrg
+  : memoryAdapter.getInterviewerProfilesByOrg;
+
+export const getActiveInterviewerProfiles = isSupabase
+  ? supabaseAdapter.getActiveInterviewerProfiles
+  : memoryAdapter.getActiveInterviewerProfiles;
+
+export const updateInterviewerProfile = isSupabase
+  ? supabaseAdapter.updateInterviewerProfile
+  : memoryAdapter.updateInterviewerProfile;
+
+export const deleteInterviewerProfile = isSupabase
+  ? supabaseAdapter.deleteInterviewerProfile
+  : memoryAdapter.deleteInterviewerProfile;
+
+// ============================================
+// Load Rollups (M15 Capacity Planning)
+// ============================================
+
+export const createLoadRollup = isSupabase
+  ? supabaseAdapter.createLoadRollup
+  : memoryAdapter.createLoadRollup;
+
+export const getLoadRollupById = isSupabase
+  ? supabaseAdapter.getLoadRollupById
+  : memoryAdapter.getLoadRollupById;
+
+export const getLoadRollupByProfileAndWeek = isSupabase
+  ? supabaseAdapter.getLoadRollupByProfileAndWeek
+  : memoryAdapter.getLoadRollupByProfileAndWeek;
+
+export const getLoadRollupsByOrg = isSupabase
+  ? supabaseAdapter.getLoadRollupsByOrg
+  : memoryAdapter.getLoadRollupsByOrg;
+
+export const upsertLoadRollup = isSupabase
+  ? supabaseAdapter.upsertLoadRollup
+  : memoryAdapter.upsertLoadRollup;
+
+export const getAtCapacityInterviewers = isSupabase
+  ? supabaseAdapter.getAtCapacityInterviewers
+  : memoryAdapter.getAtCapacityInterviewers;
+
+export const getOverCapacityInterviewers = isSupabase
+  ? supabaseAdapter.getOverCapacityInterviewers
+  : memoryAdapter.getOverCapacityInterviewers;
+
+// ============================================
+// Scheduling Recommendations (M15 Capacity Planning)
+// ============================================
+
+export const createRecommendation = isSupabase
+  ? supabaseAdapter.createRecommendation
+  : memoryAdapter.createRecommendation;
+
+export const getRecommendationById = isSupabase
+  ? supabaseAdapter.getRecommendationById
+  : memoryAdapter.getRecommendationById;
+
+export const getRecommendationsByOrg = isSupabase
+  ? supabaseAdapter.getRecommendationsByOrg
+  : memoryAdapter.getRecommendationsByOrg;
+
+export const getRecommendationsByRequest = isSupabase
+  ? supabaseAdapter.getRecommendationsByRequest
+  : memoryAdapter.getRecommendationsByRequest;
+
+export const getActiveRecommendationsByType = isSupabase
+  ? supabaseAdapter.getActiveRecommendationsByType
+  : memoryAdapter.getActiveRecommendationsByType;
+
+export const updateRecommendation = isSupabase
+  ? supabaseAdapter.updateRecommendation
+  : memoryAdapter.updateRecommendation;
+
+export const dismissRecommendation = isSupabase
+  ? supabaseAdapter.dismissRecommendation
+  : memoryAdapter.dismissRecommendation;
+
+export const markRecommendationActed = isSupabase
+  ? supabaseAdapter.markRecommendationActed
+  : memoryAdapter.markRecommendationActed;
+
+export const expireOldRecommendations = isSupabase
+  ? supabaseAdapter.expireOldRecommendations
+  : memoryAdapter.expireOldRecommendations;

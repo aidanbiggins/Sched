@@ -23,7 +23,7 @@ export default withAuth(
     }
 
     // Org-required routes - redirect to onboarding if no org
-    const orgRequiredPaths = ['/coordinator', '/hub'];
+    const orgRequiredPaths = ['/coordinator', '/hub', '/settings', '/analytics'];
     const needsOrg = orgRequiredPaths.some(p => path.startsWith(p));
 
     if (needsOrg && !token?.activeOrgId && !token?.isSuperadmin) {
@@ -34,6 +34,13 @@ export default withAuth(
       }
       // Has orgs but none selected - redirect to org picker
       return NextResponse.redirect(new URL('/org-picker', req.url));
+    }
+
+    // Org admin-only routes
+    if (path.startsWith('/settings/team')) {
+      if (!token?.isSuperadmin && token?.activeOrgRole !== 'admin') {
+        return NextResponse.redirect(new URL('/settings', req.url));
+      }
     }
 
     return NextResponse.next();

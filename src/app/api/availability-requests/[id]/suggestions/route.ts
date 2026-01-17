@@ -83,12 +83,20 @@ export async function GET(
     const { searchParams } = new URL(request.url);
     const maxSuggestions = parseInt(searchParams.get('limit') || '10', 10);
     const preferEarlier = searchParams.get('preferEarlier') !== 'false';
+    const useCapacityScoring = searchParams.get('useCapacityScoring') === 'true';
 
     // Generate suggestions
+    // Note: organizationId comes from session user for capacity scoring (M15)
+    const organizationId = (session.user as { organizationId?: string | null }).organizationId || null;
     const suggestions = await generateSuggestions(
       availabilityRequest,
       candidateBlocks,
-      { maxSuggestions, preferEarlier }
+      {
+        maxSuggestions,
+        preferEarlier,
+        useCapacityScoring,
+        organizationId,
+      }
     );
 
     // Format response
@@ -103,6 +111,7 @@ export async function GET(
         interviewerEmails: s.interviewerEmails,
         score: s.score,
         rationale: s.rationale,
+        ...(s.enhancedScore && { enhancedScore: s.enhancedScore }),
       })),
     });
   } catch (error) {

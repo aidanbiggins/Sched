@@ -152,6 +152,29 @@ export default function SettingsPage() {
           </div>
         </Link>
 
+        {/* Interviewers Section */}
+        <Link
+          href="/settings/interviewers"
+          className="block bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6 hover:border-zinc-700 transition-colors group"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                <svg className="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+              </div>
+              <div>
+                <h2 className="text-lg font-medium text-zinc-100">Interviewer Capacity</h2>
+                <p className="text-zinc-400 text-sm">Manage interviewer limits and preferences</p>
+              </div>
+            </div>
+            <svg className="w-5 h-5 text-zinc-500 group-hover:text-zinc-300 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </div>
+        </Link>
+
         {/* Account Section */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
           <h2 className="text-lg font-medium text-zinc-100 mb-4">Account</h2>

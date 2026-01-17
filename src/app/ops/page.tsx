@@ -93,7 +93,65 @@ interface NotificationCounts {
   canceled: number;
 }
 
-type Tab = 'overview' | 'webhooks' | 'reconciliation' | 'attention' | 'notifications';
+type Tab = 'overview' | 'webhooks' | 'reconciliation' | 'attention' | 'notifications' | 'jobs' | 'analytics';
+
+interface JobRun {
+  id: string;
+  jobName: string;
+  startedAt: string;
+  finishedAt: string | null;
+  durationMs: number | null;
+  status: 'running' | 'completed' | 'failed' | 'locked';
+  processed: number;
+  failed: number;
+  skipped: number;
+  queueDepthBefore: number | null;
+  queueDepthAfter: number | null;
+  triggeredBy: 'cron' | 'manual' | 'cli';
+  instanceId: string;
+  errorSummary: string | null;
+}
+
+interface JobStatus {
+  jobName: string;
+  lastRun: JobRun | null;
+  queueDepth: number;
+  failureRate24h: number;
+  isHealthy: boolean;
+  isLocked?: boolean;
+}
+
+interface JobsData {
+  jobs: JobStatus[];
+  recentRuns: JobRun[];
+}
+
+interface AnalyticsSummary {
+  period: string;
+  bookingMetrics: {
+    total: number;
+    bookingRate: number;
+    byStatus: Record<string, number>;
+  };
+  timeToSchedule: {
+    averageHours: number | null;
+  };
+  cancellationMetrics: {
+    cancellationRate: number;
+    rescheduleRate: number;
+  };
+}
+
+// M15: Capacity recommendation interface
+interface CapacityRecommendation {
+  id: string;
+  type: string;
+  priority: 'critical' | 'high' | 'medium' | 'low';
+  interviewerEmail: string | null;
+  title: string;
+  description: string;
+  status: string;
+}
 
 export default function OpsPage() {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
@@ -105,6 +163,9 @@ export default function OpsPage() {
   const [notificationCounts, setNotificationCounts] = useState<NotificationCounts | null>(null);
   const [notificationStatusFilter, setNotificationStatusFilter] = useState<string>('');
   const [notificationTypeFilter, setNotificationTypeFilter] = useState<string>('');
+  const [analyticsSummary, setAnalyticsSummary] = useState<AnalyticsSummary | null>(null);
+  const [jobsData, setJobsData] = useState<JobsData | null>(null);
+  const [capacityRecommendations, setCapacityRecommendations] = useState<CapacityRecommendation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -176,6 +237,58 @@ export default function OpsPage() {
     }
   }, []);
 
+  // Fetch analytics summary
+  const fetchAnalytics = useCallback(async () => {
+    try {
+      const res = await fetch('/api/analytics?period=30d');
+      if (!res.ok) throw new Error('Failed to fetch analytics');
+      const data = await res.json();
+      setAnalyticsSummary(data);
+    } catch (err) {
+      console.error('Error fetching analytics:', err);
+    }
+  }, []);
+
+  // Fetch jobs data
+  const fetchJobs = useCallback(async () => {
+    try {
+      const res = await fetch('/api/ops/jobs');
+      if (!res.ok) throw new Error('Failed to fetch jobs');
+      const data = await res.json();
+      setJobsData(data);
+    } catch (err) {
+      console.error('Error fetching jobs:', err);
+    }
+  }, []);
+
+  // Fetch capacity recommendations (M15)
+  const fetchCapacity = useCallback(async () => {
+    try {
+      const res = await fetch('/api/capacity/recommendations?status=active');
+      if (!res.ok) return;
+      const data = await res.json();
+      setCapacityRecommendations(data.recommendations || []);
+    } catch (err) {
+      console.error('Error fetching capacity:', err);
+    }
+  }, []);
+
+  // Trigger manual job run
+  const triggerJob = async (jobName: string) => {
+    try {
+      const res = await fetch('/api/ops/jobs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobName }),
+      });
+      if (!res.ok) throw new Error('Failed to trigger job');
+      // Refresh jobs data
+      await fetchJobs();
+    } catch (err) {
+      console.error('Error triggering job:', err);
+    }
+  };
+
   // Retry notification job
   const retryNotification = async (id: string) => {
     try {
@@ -216,24 +329,30 @@ export default function OpsPage() {
         fetchReconciliation(),
         fetchAttention(),
         fetchNotifications(),
+        fetchAnalytics(),
+        fetchJobs(),
+        fetchCapacity(),
       ]);
       setLoading(false);
     };
     load();
-  }, [fetchHealth, fetchWebhooks, fetchReconciliation, fetchAttention, fetchNotifications]);
+  }, [fetchHealth, fetchWebhooks, fetchReconciliation, fetchAttention, fetchNotifications, fetchAnalytics, fetchJobs, fetchCapacity]);
 
   // Auto-refresh
   useEffect(() => {
     if (!autoRefresh) return;
     const interval = setInterval(() => {
       fetchHealth();
+      fetchCapacity(); // Always refresh capacity for alerts
       if (activeTab === 'webhooks') fetchWebhooks();
       if (activeTab === 'reconciliation') fetchReconciliation();
       if (activeTab === 'attention') fetchAttention();
       if (activeTab === 'notifications') fetchNotifications(notificationStatusFilter, notificationTypeFilter);
+      if (activeTab === 'jobs') fetchJobs();
+      if (activeTab === 'analytics') fetchAnalytics();
     }, 30000);
     return () => clearInterval(interval);
-  }, [autoRefresh, activeTab, fetchHealth, fetchWebhooks, fetchReconciliation, fetchAttention, fetchNotifications, notificationStatusFilter, notificationTypeFilter]);
+  }, [autoRefresh, activeTab, fetchHealth, fetchWebhooks, fetchReconciliation, fetchAttention, fetchNotifications, fetchJobs, fetchAnalytics, fetchCapacity, notificationStatusFilter, notificationTypeFilter]);
 
   // Refetch notifications when filters change
   useEffect(() => {
@@ -265,6 +384,12 @@ export default function OpsPage() {
             <h1 className="text-xl font-semibold">Operator Health Dashboard</h1>
           </div>
           <div className="flex items-center gap-4">
+            <Link
+              href="/ops/audit"
+              className="px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 rounded transition-colors"
+            >
+              Audit Log
+            </Link>
             <Link
               href="/ops/graph-validator"
               className="px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 rounded transition-colors"
@@ -309,11 +434,16 @@ export default function OpsPage() {
         </div>
       )}
 
+      {/* Critical Alerts Panel */}
+      {health && (health.status !== 'healthy' || capacityRecommendations.some(r => r.priority === 'critical' || r.priority === 'high')) && (
+        <CriticalAlertsPanel health={health} capacityRecommendations={capacityRecommendations} onTabChange={setActiveTab} />
+      )}
+
       {/* Tabs */}
       <div className="border-b border-slate-700">
         <div className="max-w-7xl mx-auto px-4">
           <nav className="flex gap-1">
-            {(['overview', 'webhooks', 'reconciliation', 'attention', 'notifications'] as Tab[]).map((tab) => (
+            {(['overview', 'webhooks', 'reconciliation', 'attention', 'notifications', 'jobs', 'analytics'] as Tab[]).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -364,6 +494,12 @@ export default function OpsPage() {
             onTypeFilterChange={setNotificationTypeFilter}
             onRetry={retryNotification}
           />
+        )}
+        {activeTab === 'jobs' && (
+          <JobsTab jobsData={jobsData} onTrigger={triggerJob} />
+        )}
+        {activeTab === 'analytics' && (
+          <AnalyticsTab analytics={analyticsSummary} />
         )}
       </main>
     </div>
@@ -891,6 +1027,239 @@ function NotificationsTab({
   );
 }
 
+// Analytics Tab
+function AnalyticsTab({ analytics }: { analytics: AnalyticsSummary | null }) {
+  const formatPercentage = (value: number) => `${(value * 100).toFixed(1)}%`;
+  const formatHours = (hours: number | null) => {
+    if (hours === null) return 'N/A';
+    if (hours < 1) return `${Math.round(hours * 60)}m`;
+    if (hours < 24) return `${hours.toFixed(1)}h`;
+    return `${(hours / 24).toFixed(1)}d`;
+  };
+
+  if (!analytics) {
+    return (
+      <div className="text-center py-12 text-slate-500">
+        Loading analytics...
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-slate-800 rounded-lg p-4 border-l-4 border-blue-500">
+          <h4 className="text-sm font-medium text-slate-400">Total Requests (30d)</h4>
+          <div className="text-3xl font-bold mt-1">{analytics.bookingMetrics.total}</div>
+        </div>
+        <div className="bg-slate-800 rounded-lg p-4 border-l-4 border-emerald-500">
+          <h4 className="text-sm font-medium text-slate-400">Booking Rate</h4>
+          <div className="text-3xl font-bold mt-1 text-emerald-400">
+            {formatPercentage(analytics.bookingMetrics.bookingRate)}
+          </div>
+        </div>
+        <div className="bg-slate-800 rounded-lg p-4 border-l-4 border-amber-500">
+          <h4 className="text-sm font-medium text-slate-400">Avg Time-to-Schedule</h4>
+          <div className="text-3xl font-bold mt-1 text-amber-400">
+            {formatHours(analytics.timeToSchedule.averageHours)}
+          </div>
+        </div>
+        <div className="bg-slate-800 rounded-lg p-4 border-l-4 border-red-500">
+          <h4 className="text-sm font-medium text-slate-400">Cancellation Rate</h4>
+          <div className="text-3xl font-bold mt-1 text-red-400">
+            {formatPercentage(analytics.cancellationMetrics.cancellationRate)}
+          </div>
+          <div className="text-xs text-slate-500 mt-1">
+            Reschedule: {formatPercentage(analytics.cancellationMetrics.rescheduleRate)}
+          </div>
+        </div>
+      </div>
+
+      {/* Request Status Breakdown */}
+      <div className="bg-slate-800 rounded-lg p-6">
+        <h3 className="text-lg font-medium mb-4">Request Status (30 days)</h3>
+        <div className="grid grid-cols-5 gap-4">
+          {(['pending', 'booked', 'rescheduled', 'cancelled', 'expired'] as const).map((status) => (
+            <div key={status} className="text-center">
+              <div className="text-2xl font-bold text-slate-100">
+                {analytics.bookingMetrics.byStatus[status] || 0}
+              </div>
+              <div className="text-sm text-slate-400 capitalize">{status}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Link to Full Analytics */}
+      <div className="text-center">
+        <Link
+          href="/analytics"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-sm font-medium transition-colors"
+        >
+          View Full Analytics Dashboard
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+// Jobs Tab
+function JobsTab({
+  jobsData,
+  onTrigger,
+}: {
+  jobsData: JobsData | null;
+  onTrigger: (jobName: string) => void;
+}) {
+  const [triggering, setTriggering] = useState<string | null>(null);
+
+  const handleTrigger = async (jobName: string) => {
+    setTriggering(jobName);
+    try {
+      await onTrigger(jobName);
+    } finally {
+      setTriggering(null);
+    }
+  };
+
+  const formatDuration = (ms: number | null) => {
+    if (ms === null) return '-';
+    if (ms < 1000) return `${ms}ms`;
+    return `${(ms / 1000).toFixed(1)}s`;
+  };
+
+  const formatTimeAgo = (dateStr: string | null) => {
+    if (!dateStr) return 'Never';
+    const date = new Date(dateStr);
+    const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+    if (seconds < 60) return 'Just now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    return `${Math.floor(seconds / 86400)}d ago`;
+  };
+
+  if (!jobsData) {
+    return (
+      <div className="text-center py-12 text-slate-500">
+        Loading jobs data...
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Job Status Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {jobsData.jobs.map((job) => (
+          <div
+            key={job.jobName}
+            className={`bg-slate-800 rounded-lg p-4 border-l-4 ${
+              job.isLocked
+                ? 'border-yellow-500'
+                : job.isHealthy
+                ? 'border-emerald-500'
+                : 'border-red-500'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-sm font-medium text-slate-400 capitalize">{job.jobName}</h4>
+              {job.isLocked && (
+                <span className="px-2 py-0.5 text-xs bg-yellow-500/20 text-yellow-300 rounded">
+                  Locked
+                </span>
+              )}
+            </div>
+            <div className="text-2xl font-bold mt-1">{job.queueDepth}</div>
+            <div className="text-xs text-slate-500 mt-1">Queue depth</div>
+            <div className="mt-3 pt-3 border-t border-slate-700 text-xs text-slate-400">
+              <div className="flex justify-between">
+                <span>Last run:</span>
+                <span>{formatTimeAgo(job.lastRun?.finishedAt ?? null)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Duration:</span>
+                <span>{formatDuration(job.lastRun?.durationMs ?? null)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Failure rate (24h):</span>
+                <span className={job.failureRate24h > 0.5 ? 'text-red-400' : ''}>
+                  {(job.failureRate24h * 100).toFixed(0)}%
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={() => handleTrigger(job.jobName)}
+              disabled={triggering === job.jobName || job.isLocked}
+              className={`mt-3 w-full px-3 py-1.5 text-sm rounded transition-colors ${
+                triggering === job.jobName || job.isLocked
+                  ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                  : 'bg-cyan-700/50 hover:bg-cyan-700 text-cyan-200'
+              }`}
+            >
+              {triggering === job.jobName ? 'Running...' : 'Run Now'}
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* Recent Runs Table */}
+      <div className="bg-slate-800 rounded-lg overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-700">
+          <h3 className="font-medium">Recent Job Runs</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-slate-700/50 text-left text-sm">
+              <tr>
+                <th className="px-4 py-2">Job</th>
+                <th className="px-4 py-2">Status</th>
+                <th className="px-4 py-2">Trigger</th>
+                <th className="px-4 py-2">Processed</th>
+                <th className="px-4 py-2">Failed</th>
+                <th className="px-4 py-2">Queue</th>
+                <th className="px-4 py-2">Duration</th>
+                <th className="px-4 py-2">Started</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-700">
+              {jobsData.recentRuns.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
+                    No job runs yet
+                  </td>
+                </tr>
+              ) : (
+                jobsData.recentRuns.map((run) => (
+                  <tr key={run.id} className="hover:bg-slate-700/30">
+                    <td className="px-4 py-2 font-medium capitalize">{run.jobName}</td>
+                    <td className="px-4 py-2">
+                      <StatusBadge status={run.status} />
+                    </td>
+                    <td className="px-4 py-2 text-sm text-slate-400">{run.triggeredBy}</td>
+                    <td className="px-4 py-2 text-sm text-emerald-400">{run.processed}</td>
+                    <td className="px-4 py-2 text-sm text-red-400">{run.failed}</td>
+                    <td className="px-4 py-2 text-sm text-slate-400">
+                      {run.queueDepthBefore} → {run.queueDepthAfter}
+                    </td>
+                    <td className="px-4 py-2 text-sm">{formatDuration(run.durationMs)}</td>
+                    <td className="px-4 py-2 text-sm text-slate-400">
+                      {new Date(run.startedAt).toLocaleString()}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Status Badge Component
 function StatusBadge({ status }: { status: string }) {
   const colors: Record<string, string> = {
@@ -904,6 +1273,9 @@ function StatusBadge({ status }: { status: string }) {
     booked: 'bg-emerald-500/20 text-emerald-300',
     cancelled: 'bg-slate-500/20 text-slate-300',
     expired: 'bg-slate-500/20 text-slate-300',
+    // Job run statuses
+    running: 'bg-blue-500/20 text-blue-300',
+    locked: 'bg-yellow-500/20 text-yellow-300',
     // Notification statuses
     PENDING: 'bg-amber-500/20 text-amber-300',
     SENDING: 'bg-blue-500/20 text-blue-300',
@@ -916,5 +1288,147 @@ function StatusBadge({ status }: { status: string }) {
     <span className={`px-2 py-0.5 rounded text-xs font-medium ${colors[status] || 'bg-slate-600 text-slate-300'}`}>
       {status}
     </span>
+  );
+}
+
+// Critical Alerts Panel - shows when system has failures
+function CriticalAlertsPanel({
+  health,
+  capacityRecommendations,
+  onTabChange,
+}: {
+  health: HealthStatus;
+  capacityRecommendations: CapacityRecommendation[];
+  onTabChange: (tab: Tab) => void;
+}) {
+  const alerts: Array<{
+    severity: 'critical' | 'warning';
+    message: string;
+    count: number;
+    tab: Tab;
+    detail?: string;
+  }> = [];
+
+  // Check for critical failures
+  if (health.requests.needsAttention > 0) {
+    alerts.push({
+      severity: 'critical',
+      message: 'Requests need operator attention',
+      count: health.requests.needsAttention,
+      tab: 'attention',
+    });
+  }
+
+  if (health.webhooks.last24h.failed > 0) {
+    alerts.push({
+      severity: health.webhooks.last24h.failed > 5 ? 'critical' : 'warning',
+      message: 'Webhook processing failures (24h)',
+      count: health.webhooks.last24h.failed,
+      tab: 'webhooks',
+    });
+  }
+
+  if (health.reconciliation.failed > 0) {
+    alerts.push({
+      severity: health.reconciliation.failed > 3 ? 'critical' : 'warning',
+      message: 'Reconciliation job failures',
+      count: health.reconciliation.failed,
+      tab: 'reconciliation',
+    });
+  }
+
+  if (health.reconciliation.requiresAttention > 0) {
+    alerts.push({
+      severity: 'warning',
+      message: 'Reconciliation jobs need attention',
+      count: health.reconciliation.requiresAttention,
+      tab: 'reconciliation',
+    });
+  }
+
+  if (health.notifications?.failed && health.notifications.failed > 0) {
+    alerts.push({
+      severity: health.notifications.failed > 5 ? 'critical' : 'warning',
+      message: 'Notification delivery failures',
+      count: health.notifications.failed,
+      tab: 'notifications',
+    });
+  }
+
+  // M15: Add capacity alerts
+  const criticalCapacity = capacityRecommendations.filter(r => r.priority === 'critical');
+  const highCapacity = capacityRecommendations.filter(r => r.priority === 'high');
+
+  if (criticalCapacity.length > 0) {
+    alerts.push({
+      severity: 'critical',
+      message: 'Interviewers over capacity',
+      count: criticalCapacity.length,
+      tab: 'jobs', // Links to jobs tab where capacity worker runs
+      detail: criticalCapacity.map(r => r.interviewerEmail || 'Unknown').join(', '),
+    });
+  }
+
+  if (highCapacity.length > 0) {
+    alerts.push({
+      severity: 'warning',
+      message: 'Interviewers at/near capacity',
+      count: highCapacity.length,
+      tab: 'jobs',
+      detail: highCapacity.map(r => r.interviewerEmail || 'Unknown').join(', '),
+    });
+  }
+
+  if (alerts.length === 0) return null;
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 py-4">
+      <div className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden">
+        <div className="px-4 py-3 bg-slate-700/50 border-b border-slate-700 flex items-center gap-2">
+          <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <span className="font-medium text-slate-100">Active Alerts</span>
+          <span className="ml-auto text-sm text-slate-400">
+            {alerts.filter(a => a.severity === 'critical').length} critical, {alerts.filter(a => a.severity === 'warning').length} warnings
+          </span>
+        </div>
+        <div className="divide-y divide-slate-700">
+          {alerts.map((alert, idx) => (
+            <div
+              key={idx}
+              className="px-4 py-3 flex items-center gap-4 hover:bg-slate-700/30 transition-colors"
+            >
+              <div
+                className={`w-2 h-2 rounded-full ${
+                  alert.severity === 'critical' ? 'bg-red-500' : 'bg-amber-500'
+                }`}
+              />
+              <div className="flex-1">
+                <span className="text-sm text-slate-200">{alert.message}</span>
+                {alert.detail && (
+                  <span className="ml-2 text-xs text-slate-400">({alert.detail})</span>
+                )}
+              </div>
+              <span
+                className={`px-2 py-0.5 rounded text-xs font-medium ${
+                  alert.severity === 'critical'
+                    ? 'bg-red-500/20 text-red-300'
+                    : 'bg-amber-500/20 text-amber-300'
+                }`}
+              >
+                {alert.count}
+              </span>
+              <button
+                onClick={() => onTabChange(alert.tab)}
+                className="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded transition-colors"
+              >
+                View
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }

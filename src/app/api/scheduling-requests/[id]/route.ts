@@ -9,6 +9,9 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth/authOptions';
+import { verifyResourceOwnership } from '@/lib/auth/guards';
 import { getSchedulingService } from '@/lib/scheduling';
 import {
   getAuditLogsByRequestId,
@@ -22,6 +25,12 @@ interface RouteParams {
 
 export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
+    // Check authentication
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
     // Handle both sync and async params (Next.js version differences)
     const resolvedParams = params instanceof Promise ? await params : params;
     const { id } = resolvedParams;
@@ -34,6 +43,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     console.log(`[API] Request ${id} status: ${schedulingRequest?.status}`);
 
     if (!schedulingRequest) {
+      return NextResponse.json(
+        { error: 'Scheduling request not found' },
+        { status: 404 }
+      );
+    }
+
+    // Verify user can access this resource (belongs to their org)
+    if (!verifyResourceOwnership(session, schedulingRequest.organizationId)) {
       return NextResponse.json(
         { error: 'Scheduling request not found' },
         { status: 404 }

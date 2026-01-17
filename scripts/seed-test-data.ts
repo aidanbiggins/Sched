@@ -36,6 +36,7 @@ function createRequest(overrides: Partial<SchedulingRequest>): SchedulingRequest
   const id = uuidv4();
   return {
     id,
+    organizationId: null,
     applicationId: `app-${id.slice(0, 8)}`,
     candidateName: 'Test Candidate',
     candidateEmail: 'test@example.com',

@@ -172,8 +172,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Get active organization from session (via ExtendedSession)
+    const activeOrgId = (session.user as { activeOrgId?: string }).activeOrgId;
+
     // Map request body to internal input format
     const input = {
+      organizationId: activeOrgId || undefined,
       applicationId: body.icimsApplicationId || null,
       candidateName: body.candidateName || body.candidateEmail.split('@')[0],
       candidateEmail: body.candidateEmail,

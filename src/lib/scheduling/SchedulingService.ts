@@ -270,6 +270,7 @@ This interview was scheduled via Sched.
 
     const request: SchedulingRequest = {
       id,
+      organizationId: input.organizationId || null,
       applicationId: input.applicationId || null,
       candidateName: input.candidateName,
       candidateEmail: input.candidateEmail,

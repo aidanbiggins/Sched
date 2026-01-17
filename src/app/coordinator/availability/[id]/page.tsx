@@ -11,6 +11,16 @@ interface Suggestion {
   interviewerEmails: string[];
   score: number;
   rationale: string;
+  enhancedScore?: {
+    availabilityScore: number;
+    timelinessScore: number;
+    timeOfDayScore: number;
+    loadBalanceScore: number;
+    capacityHeadroomScore: number;
+    preferenceMatchScore: number;
+    totalScore: number;
+    rationale: string[];
+  };
 }
 
 interface SuggestionsResponse {
@@ -19,6 +29,17 @@ interface SuggestionsResponse {
   candidateTimezone: string;
   durationMinutes: number;
   suggestions: Suggestion[];
+}
+
+interface Recommendation {
+  id: string;
+  type: string;
+  priority: 'critical' | 'high' | 'medium' | 'low';
+  interviewerEmail: string | null;
+  title: string;
+  description: string;
+  evidence: Record<string, unknown>;
+  status: string;
 }
 
 export default function AvailabilityDetailPage({
@@ -63,6 +84,10 @@ export default function AvailabilityDetailPage({
   const [showResendModal, setShowResendModal] = useState(false);
   const [resendResult, setResendResult] = useState<{ publicLink: string } | null>(null);
 
+  // Recommendations state (M15 capacity planning)
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+  const [useCapacityScoring, setUseCapacityScoring] = useState(false);
+
   // Fetch request details
   useEffect(() => {
     async function fetchRequest() {
@@ -97,7 +122,11 @@ export default function AvailabilityDetailPage({
     setSuggestionsLoading(true);
 
     try {
-      const response = await fetch(`/api/availability-requests/${id}/suggestions`);
+      const url = new URL(`/api/availability-requests/${id}/suggestions`, window.location.origin);
+      if (useCapacityScoring) {
+        url.searchParams.set('useCapacityScoring', 'true');
+      }
+      const response = await fetch(url.toString());
       if (!response.ok) {
         const data = await response.json();
         throw new Error(data.error || 'Failed to fetch suggestions');
@@ -110,13 +139,43 @@ export default function AvailabilityDetailPage({
     } finally {
       setSuggestionsLoading(false);
     }
-  }, [id, request]);
+  }, [id, request, useCapacityScoring]);
 
   useEffect(() => {
     if (request?.status === 'submitted') {
       fetchSuggestions();
     }
   }, [request?.status, fetchSuggestions]);
+
+  // Fetch recommendations for interviewers (M15)
+  useEffect(() => {
+    async function fetchRecommendations() {
+      if (!request || request.interviewerEmails.length === 0) return;
+
+      try {
+        const response = await fetch('/api/capacity/recommendations?status=active');
+        if (!response.ok) return;
+
+        const data = await response.json();
+        // Filter to recommendations that mention our interviewers
+        const relevantRecs = (data.recommendations || []).filter(
+          (rec: Recommendation) =>
+            rec.interviewerEmail &&
+            request.interviewerEmails.includes(rec.interviewerEmail)
+        );
+        setRecommendations(relevantRecs);
+
+        // Enable capacity scoring if there are any recommendations
+        if (relevantRecs.length > 0) {
+          setUseCapacityScoring(true);
+        }
+      } catch (err) {
+        console.error('Failed to fetch recommendations:', err);
+      }
+    }
+
+    fetchRecommendations();
+  }, [request?.interviewerEmails, request]);
 
   // Redirect if not authenticated
   useEffect(() => {
@@ -363,6 +422,55 @@ export default function AvailabilityDetailPage({
           </div>
         )}
 
+        {/* Capacity Recommendations (M15) */}
+        {recommendations.length > 0 && request.status === 'submitted' && !bookingResult && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-6">
+            <h3 className="text-lg font-semibold text-amber-800 mb-3">
+              Capacity Alerts
+            </h3>
+            <div className="space-y-3">
+              {recommendations.map((rec) => (
+                <div
+                  key={rec.id}
+                  className={`p-3 rounded-lg border ${
+                    rec.priority === 'critical'
+                      ? 'bg-red-50 border-red-200'
+                      : rec.priority === 'high'
+                      ? 'bg-amber-50 border-amber-200'
+                      : 'bg-yellow-50 border-yellow-200'
+                  }`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <span
+                        className={`inline-flex px-2 py-0.5 text-xs font-semibold rounded-full mr-2 ${
+                          rec.priority === 'critical'
+                            ? 'bg-red-100 text-red-800'
+                            : rec.priority === 'high'
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-yellow-100 text-yellow-800'
+                        }`}
+                      >
+                        {rec.priority}
+                      </span>
+                      <span className="font-medium text-slate-900">{rec.title}</span>
+                    </div>
+                  </div>
+                  <p className="text-sm text-slate-600 mt-1">{rec.description}</p>
+                  {rec.interviewerEmail && (
+                    <p className="text-xs text-slate-500 mt-1">
+                      Interviewer: {rec.interviewerEmail}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+            <p className="text-sm text-amber-700 mt-3">
+              Suggestions are scored to account for interviewer capacity.
+            </p>
+          </div>
+        )}
+
         {/* Suggestions */}
         {request.status === 'submitted' && !bookingResult && (
           <div className="bg-white rounded-lg shadow p-6">
@@ -370,13 +478,26 @@ export default function AvailabilityDetailPage({
               <h2 className="text-lg font-semibold text-slate-900">
                 Suggested Times
               </h2>
-              <button
-                onClick={fetchSuggestions}
-                disabled={suggestionsLoading}
-                className="text-indigo-600 hover:text-indigo-800 text-sm"
-              >
-                {suggestionsLoading ? 'Loading...' : 'Refresh'}
-              </button>
+              <div className="flex items-center gap-4">
+                {recommendations.length > 0 && (
+                  <label className="flex items-center text-sm text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={useCapacityScoring}
+                      onChange={(e) => setUseCapacityScoring(e.target.checked)}
+                      className="mr-2"
+                    />
+                    Capacity-aware ranking
+                  </label>
+                )}
+                <button
+                  onClick={fetchSuggestions}
+                  disabled={suggestionsLoading}
+                  className="text-indigo-600 hover:text-indigo-800 text-sm"
+                >
+                  {suggestionsLoading ? 'Loading...' : 'Refresh'}
+                </button>
+              </div>
             </div>
 
             {error && (
@@ -402,7 +523,7 @@ export default function AvailabilityDetailPage({
                     key={index}
                     className="flex items-center justify-between p-4 border rounded-lg hover:bg-slate-50"
                   >
-                    <div>
+                    <div className="flex-1">
                       <div className="font-medium text-slate-900">
                         {formatDateTime(suggestion.startAt, request.candidateTimezone || undefined)}
                       </div>
@@ -412,14 +533,41 @@ export default function AvailabilityDetailPage({
                       <div className="text-xs text-slate-400 mt-1">
                         Available: {suggestion.interviewerEmails.join(', ')}
                       </div>
+                      {/* Enhanced score breakdown (M15) */}
+                      {suggestion.enhancedScore && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {suggestion.enhancedScore.loadBalanceScore < 10 && (
+                            <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-amber-100 text-amber-700">
+                              High load
+                            </span>
+                          )}
+                          {suggestion.enhancedScore.capacityHeadroomScore < 8 && (
+                            <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-red-100 text-red-700">
+                              Near capacity
+                            </span>
+                          )}
+                          {suggestion.enhancedScore.preferenceMatchScore >= 8 && (
+                            <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-700">
+                              Preference match
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    <button
-                      onClick={() => bookSuggestion(suggestion)}
-                      disabled={booking}
-                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-green-400"
-                    >
-                      {booking ? 'Booking...' : 'Book'}
-                    </button>
+                    <div className="flex flex-col items-end gap-2 ml-4">
+                      <button
+                        onClick={() => bookSuggestion(suggestion)}
+                        disabled={booking}
+                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-green-400"
+                      >
+                        {booking ? 'Booking...' : 'Book'}
+                      </button>
+                      {suggestion.enhancedScore && (
+                        <span className="text-xs text-slate-400">
+                          Score: {suggestion.enhancedScore.totalScore.toFixed(1)}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>

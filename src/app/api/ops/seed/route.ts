@@ -42,6 +42,7 @@ export async function POST() {
 
       const request: SchedulingRequest = {
         id,
+        organizationId: null,
         applicationId: `DEMO-${Date.now()}-${i}`,
         candidateName: candidate.name,
         candidateEmail: candidate.email,

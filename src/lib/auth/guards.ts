@@ -101,3 +101,32 @@ export function getActiveOrgRole(session: Session | null): OrgMemberRole | null 
   const extSession = session as ExtendedSession;
   return extSession.user.activeOrgRole || null;
 }
+
+/**
+ * Verify resource belongs to user's active organization
+ * Returns true if user can access the resource
+ */
+export function verifyResourceOwnership(
+  session: Session | null,
+  resourceOrgId: string | null | undefined
+): boolean {
+  if (!requireUser(session)) return false;
+  const extSession = session as ExtendedSession;
+
+  // Superadmin can access all resources
+  if (extSession.user.isSuperadmin) return true;
+
+  // Resource must belong to user's active org
+  const activeOrgId = extSession.user.activeOrgId;
+  if (!activeOrgId) return false;
+
+  return resourceOrgId === activeOrgId;
+}
+
+/**
+ * Get user ID from session for filtering queries
+ */
+export function getUserId(session: Session | null): string | null {
+  if (!requireUser(session)) return null;
+  return session.user.id;
+}
