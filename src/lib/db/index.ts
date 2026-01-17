@@ -10,6 +10,7 @@
 
 import * as memoryAdapter from './memory-adapter';
 import * as supabaseAdapter from './supabase-adapter';
+import * as loopMemoryAdapter from './loop-adapter';
 
 // Determine which adapter to use
 const isSupabase = process.env.DB_MODE === 'supabase';
@@ -546,37 +547,112 @@ export const deleteCoordinatorPreferences = isSupabase
 // Loop Autopilot (M18)
 // ============================================
 
-export {
-  // Loop Templates
-  createLoopTemplate,
-  getLoopTemplateById,
-  getLoopTemplatesByOrg,
-  getLoopTemplateWithSessions,
-  updateLoopTemplate,
-  deleteLoopTemplate,
-  // Loop Session Templates
-  createLoopSessionTemplate,
-  getLoopSessionTemplatesByTemplateId,
-  deleteLoopSessionTemplate,
-  // Loop Solve Runs
-  createLoopSolveRun,
-  getLoopSolveRunById,
-  getLoopSolveRunByIdempotencyKey,
-  getLatestLoopSolveRun,
-  updateLoopSolveRunResult,
-  updateLoopSolveRunError,
-  getLoopSolveRunsForOps,
-  // Loop Bookings
-  createLoopBooking,
-  getLoopBookingById,
-  getLoopBookingByIdempotencyKey,
-  getLoopBookingByAvailabilityRequest,
-  updateLoopBookingStatus,
-  getLoopBookingsForOps,
-  // Loop Booking Items
-  createLoopBookingItem,
-  getLoopBookingItems,
-  // Seeding
-  seedLoopTemplates,
-  clearLoopStores,
-} from './loop-adapter';
+// Loop Templates
+export const createLoopTemplate = isSupabase
+  ? supabaseAdapter.createLoopTemplate
+  : loopMemoryAdapter.createLoopTemplate;
+
+export const getLoopTemplateById = isSupabase
+  ? supabaseAdapter.getLoopTemplateById
+  : loopMemoryAdapter.getLoopTemplateById;
+
+export const getLoopTemplatesByOrg = isSupabase
+  ? supabaseAdapter.getLoopTemplatesByOrg
+  : loopMemoryAdapter.getLoopTemplatesByOrg;
+
+export const getLoopTemplateWithSessions = isSupabase
+  ? supabaseAdapter.getLoopTemplateWithSessions
+  : loopMemoryAdapter.getLoopTemplateWithSessions;
+
+export const updateLoopTemplate = isSupabase
+  ? supabaseAdapter.updateLoopTemplate
+  : loopMemoryAdapter.updateLoopTemplate;
+
+export const deleteLoopTemplate = isSupabase
+  ? supabaseAdapter.deleteLoopTemplate
+  : loopMemoryAdapter.deleteLoopTemplate;
+
+// Loop Session Templates
+export const createLoopSessionTemplate = isSupabase
+  ? supabaseAdapter.createLoopSessionTemplate
+  : loopMemoryAdapter.createLoopSessionTemplate;
+
+export const getLoopSessionTemplatesByTemplateId = isSupabase
+  ? supabaseAdapter.getLoopSessionTemplatesByTemplateId
+  : loopMemoryAdapter.getLoopSessionTemplatesByTemplateId;
+
+export const deleteLoopSessionTemplate = isSupabase
+  ? supabaseAdapter.deleteLoopSessionTemplate
+  : loopMemoryAdapter.deleteLoopSessionTemplate;
+
+// Loop Solve Runs
+export const createLoopSolveRun = isSupabase
+  ? supabaseAdapter.createLoopSolveRun
+  : loopMemoryAdapter.createLoopSolveRun;
+
+export const getLoopSolveRunById = isSupabase
+  ? supabaseAdapter.getLoopSolveRunById
+  : loopMemoryAdapter.getLoopSolveRunById;
+
+export const getLoopSolveRunByIdempotencyKey = isSupabase
+  ? supabaseAdapter.getLoopSolveRunByIdempotencyKey
+  : loopMemoryAdapter.getLoopSolveRunByIdempotencyKey;
+
+export const getLatestLoopSolveRun = isSupabase
+  ? supabaseAdapter.getLatestLoopSolveRun
+  : loopMemoryAdapter.getLatestLoopSolveRun;
+
+export const updateLoopSolveRunResult = isSupabase
+  ? supabaseAdapter.updateLoopSolveRunResult
+  : loopMemoryAdapter.updateLoopSolveRunResult;
+
+export const updateLoopSolveRunError = isSupabase
+  ? supabaseAdapter.updateLoopSolveRunError
+  : loopMemoryAdapter.updateLoopSolveRunError;
+
+export const getLoopSolveRunsForOps = isSupabase
+  ? supabaseAdapter.getLoopSolveRunsForOps
+  : loopMemoryAdapter.getLoopSolveRunsForOps;
+
+// Loop Bookings
+export const createLoopBooking = isSupabase
+  ? supabaseAdapter.createLoopBooking
+  : loopMemoryAdapter.createLoopBooking;
+
+export const getLoopBookingById = isSupabase
+  ? supabaseAdapter.getLoopBookingById
+  : loopMemoryAdapter.getLoopBookingById;
+
+export const getLoopBookingByIdempotencyKey = isSupabase
+  ? supabaseAdapter.getLoopBookingByIdempotencyKey
+  : loopMemoryAdapter.getLoopBookingByIdempotencyKey;
+
+export const getLoopBookingByAvailabilityRequest = isSupabase
+  ? supabaseAdapter.getLoopBookingByAvailabilityRequest
+  : loopMemoryAdapter.getLoopBookingByAvailabilityRequest;
+
+export const updateLoopBookingStatus = isSupabase
+  ? supabaseAdapter.updateLoopBookingStatus
+  : loopMemoryAdapter.updateLoopBookingStatus;
+
+export const getLoopBookingsForOps = isSupabase
+  ? supabaseAdapter.getLoopBookingsForOps
+  : loopMemoryAdapter.getLoopBookingsForOps;
+
+// Loop Booking Items
+export const createLoopBookingItem = isSupabase
+  ? supabaseAdapter.createLoopBookingItem
+  : loopMemoryAdapter.createLoopBookingItem;
+
+export const getLoopBookingItems = isSupabase
+  ? supabaseAdapter.getLoopBookingItems
+  : loopMemoryAdapter.getLoopBookingItems;
+
+// Seeding and Clear
+export const seedLoopTemplates = isSupabase
+  ? supabaseAdapter.seedLoopTemplates
+  : loopMemoryAdapter.seedLoopTemplates;
+
+export const clearLoopStores = isSupabase
+  ? supabaseAdapter.clearLoopStores
+  : loopMemoryAdapter.clearLoopStores;

@@ -45,6 +45,23 @@ import {
   RecommendationInput,
   RecommendationStatus,
 } from '@/types/capacity';
+import type {
+  LoopTemplate,
+  LoopSessionTemplate,
+  LoopSolveRun,
+  LoopBooking,
+  LoopBookingItem,
+  LoopTemplateWithSessions,
+  CreateLoopTemplateInput,
+  CreateLoopSessionTemplateInput,
+  CreateLoopSolveRunInput,
+  CreateLoopBookingInput,
+  CreateLoopBookingItemInput,
+  LoopSolveResult,
+  LoopBookingStatus,
+  RollbackDetails,
+  LoopSolveStatus,
+} from '@/types/loop';
 // Database row types for mapping - using inline types for flexibility
 // until we generate proper types from a real Supabase project
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -71,6 +88,16 @@ type CandidateAvailabilityBlockRow = any;
 type NotificationJobRow = any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type NotificationAttemptRow = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type LoopTemplateRow = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type LoopSessionTemplateRow = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type LoopSolveRunRow = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type LoopBookingRow = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type LoopBookingItemRow = any;
 
 // ============================================
 // Type Mappers (DB Row <-> Domain Type)
@@ -2753,6 +2780,665 @@ export async function deleteCoordinatorPreferences(
 }
 
 // ============================================
+// Loop Autopilot (M18)
+// ============================================
+
+// Type mappers for Loop entities
+function mapToLoopTemplate(row: LoopTemplateRow): LoopTemplate {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    name: row.name,
+    description: row.description,
+    isActive: row.is_active,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+    createdBy: row.created_by,
+  };
+}
+
+function mapToLoopSessionTemplate(row: LoopSessionTemplateRow): LoopSessionTemplate {
+  return {
+    id: row.id,
+    loopTemplateId: row.loop_template_id,
+    order: row.order,
+    name: row.name,
+    durationMinutes: row.duration_minutes,
+    interviewerPool: row.interviewer_pool,
+    constraints: row.constraints || {},
+    createdAt: new Date(row.created_at),
+  };
+}
+
+function mapToLoopSolveRun(row: LoopSolveRunRow): LoopSolveRun {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    availabilityRequestId: row.availability_request_id,
+    loopTemplateId: row.loop_template_id,
+    inputsSnapshot: row.inputs_snapshot,
+    status: row.status as LoopSolveStatus,
+    resultSnapshot: row.result_snapshot,
+    solutionsCount: row.solutions_count,
+    solveDurationMs: row.solve_duration_ms,
+    searchIterations: row.search_iterations,
+    graphApiCalls: row.graph_api_calls,
+    errorMessage: row.error_message,
+    errorStack: row.error_stack,
+    createdAt: new Date(row.created_at),
+    solveIdempotencyKey: row.solve_idempotency_key,
+  };
+}
+
+function mapToLoopBooking(row: LoopBookingRow): LoopBooking {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    availabilityRequestId: row.availability_request_id,
+    loopTemplateId: row.loop_template_id,
+    solveRunId: row.solve_run_id,
+    chosenSolutionId: row.chosen_solution_id,
+    status: row.status as LoopBookingStatus,
+    rollbackAttempted: row.rollback_attempted,
+    rollbackDetails: row.rollback_details,
+    errorMessage: row.error_message,
+    commitIdempotencyKey: row.commit_idempotency_key,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+  };
+}
+
+function mapToLoopBookingItem(row: LoopBookingItemRow): LoopBookingItem {
+  return {
+    id: row.id,
+    loopBookingId: row.loop_booking_id,
+    sessionTemplateId: row.session_template_id,
+    bookingId: row.booking_id,
+    calendarEventId: row.calendar_event_id,
+    status: row.status,
+    createdAt: new Date(row.created_at),
+  };
+}
+
+// Loop Templates
+export async function createLoopTemplate(
+  input: CreateLoopTemplateInput
+): Promise<LoopTemplate> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('loop_templates')
+    .insert({
+      organization_id: input.organizationId,
+      name: input.name,
+      description: input.description || null,
+      is_active: true,
+      created_by: input.createdBy,
+    })
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to create loop template: ${error.message}`);
+  return mapToLoopTemplate(data);
+}
+
+export async function getLoopTemplateById(id: string): Promise<LoopTemplate | null> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('loop_templates')
+    .select('*')
+    .eq('id', id)
+    .limit(1);
+
+  if (error) throw new Error(`Failed to get loop template: ${error.message}`);
+  if (!data || data.length === 0) return null;
+  return mapToLoopTemplate(data[0]);
+}
+
+export async function getLoopTemplatesByOrg(
+  organizationId: string,
+  activeOnly: boolean = true
+): Promise<LoopTemplate[]> {
+  const supabase = getSupabaseClient();
+  let query = supabase
+    .from('loop_templates')
+    .select('*')
+    .eq('organization_id', organizationId);
+
+  if (activeOnly) {
+    query = query.eq('is_active', true);
+  }
+
+  const { data, error } = await query.order('name');
+
+  if (error) throw new Error(`Failed to get loop templates: ${error.message}`);
+  return (data || []).map(mapToLoopTemplate);
+}
+
+export async function getLoopTemplateWithSessions(
+  id: string
+): Promise<LoopTemplateWithSessions | null> {
+  const template = await getLoopTemplateById(id);
+  if (!template) return null;
+
+  const sessions = await getLoopSessionTemplatesByTemplateId(id);
+  return { ...template, sessions };
+}
+
+export async function updateLoopTemplate(
+  id: string,
+  updates: Partial<Pick<LoopTemplate, 'name' | 'description' | 'isActive'>>
+): Promise<LoopTemplate | null> {
+  const supabase = getSupabaseClient();
+  const dbUpdates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+
+  if (updates.name !== undefined) dbUpdates.name = updates.name;
+  if (updates.description !== undefined) dbUpdates.description = updates.description;
+  if (updates.isActive !== undefined) dbUpdates.is_active = updates.isActive;
+
+  const { data, error } = await supabase
+    .from('loop_templates')
+    .update(dbUpdates)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw new Error(`Failed to update loop template: ${error.message}`);
+  }
+  return mapToLoopTemplate(data);
+}
+
+export async function deleteLoopTemplate(id: string): Promise<boolean> {
+  const supabase = getSupabaseClient();
+  const { error } = await supabase
+    .from('loop_templates')
+    .delete()
+    .eq('id', id);
+
+  if (error) throw new Error(`Failed to delete loop template: ${error.message}`);
+  return true;
+}
+
+// Loop Session Templates
+export async function createLoopSessionTemplate(
+  input: CreateLoopSessionTemplateInput
+): Promise<LoopSessionTemplate> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('loop_session_templates')
+    .insert({
+      loop_template_id: input.loopTemplateId,
+      order: input.order,
+      name: input.name,
+      duration_minutes: input.durationMinutes,
+      interviewer_pool: input.interviewerPool,
+      constraints: input.constraints || {},
+    })
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to create loop session template: ${error.message}`);
+  return mapToLoopSessionTemplate(data);
+}
+
+export async function getLoopSessionTemplatesByTemplateId(
+  loopTemplateId: string
+): Promise<LoopSessionTemplate[]> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('loop_session_templates')
+    .select('*')
+    .eq('loop_template_id', loopTemplateId)
+    .order('order');
+
+  if (error) throw new Error(`Failed to get loop session templates: ${error.message}`);
+  return (data || []).map(mapToLoopSessionTemplate);
+}
+
+export async function deleteLoopSessionTemplate(id: string): Promise<boolean> {
+  const supabase = getSupabaseClient();
+  const { error } = await supabase
+    .from('loop_session_templates')
+    .delete()
+    .eq('id', id);
+
+  if (error) throw new Error(`Failed to delete loop session template: ${error.message}`);
+  return true;
+}
+
+// Loop Solve Runs
+export async function createLoopSolveRun(
+  input: CreateLoopSolveRunInput
+): Promise<LoopSolveRun> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('loop_solve_runs')
+    .insert({
+      organization_id: input.organizationId,
+      availability_request_id: input.availabilityRequestId,
+      loop_template_id: input.loopTemplateId,
+      inputs_snapshot: input.inputsSnapshot,
+      status: 'SOLVED',
+      solutions_count: 0,
+      solve_idempotency_key: input.solveIdempotencyKey || null,
+    })
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to create loop solve run: ${error.message}`);
+  return mapToLoopSolveRun(data);
+}
+
+export async function getLoopSolveRunById(id: string): Promise<LoopSolveRun | null> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('loop_solve_runs')
+    .select('*')
+    .eq('id', id)
+    .limit(1);
+
+  if (error) throw new Error(`Failed to get loop solve run: ${error.message}`);
+  if (!data || data.length === 0) return null;
+  return mapToLoopSolveRun(data[0]);
+}
+
+export async function getLoopSolveRunByIdempotencyKey(
+  key: string
+): Promise<LoopSolveRun | null> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('loop_solve_runs')
+    .select('*')
+    .eq('solve_idempotency_key', key)
+    .limit(1);
+
+  if (error) throw new Error(`Failed to get loop solve run by idempotency key: ${error.message}`);
+  if (!data || data.length === 0) return null;
+  return mapToLoopSolveRun(data[0]);
+}
+
+export async function getLatestLoopSolveRun(
+  availabilityRequestId: string
+): Promise<LoopSolveRun | null> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('loop_solve_runs')
+    .select('*')
+    .eq('availability_request_id', availabilityRequestId)
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (error) throw new Error(`Failed to get latest loop solve run: ${error.message}`);
+  if (!data || data.length === 0) return null;
+  return mapToLoopSolveRun(data[0]);
+}
+
+export async function updateLoopSolveRunResult(
+  id: string,
+  result: LoopSolveResult,
+  metadata: {
+    solveDurationMs: number;
+    searchIterations: number;
+    graphApiCalls: number;
+  }
+): Promise<LoopSolveRun | null> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('loop_solve_runs')
+    .update({
+      status: result.status,
+      result_snapshot: result,
+      solutions_count: result.solutions.length,
+      solve_duration_ms: metadata.solveDurationMs,
+      search_iterations: metadata.searchIterations,
+      graph_api_calls: metadata.graphApiCalls,
+    })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw new Error(`Failed to update loop solve run result: ${error.message}`);
+  }
+  return mapToLoopSolveRun(data);
+}
+
+export async function updateLoopSolveRunError(
+  id: string,
+  errorMessage: string,
+  errorStack?: string
+): Promise<LoopSolveRun | null> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('loop_solve_runs')
+    .update({
+      status: 'ERROR',
+      error_message: errorMessage,
+      error_stack: errorStack || null,
+    })
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw new Error(`Failed to update loop solve run error: ${error.message}`);
+  }
+  return mapToLoopSolveRun(data);
+}
+
+export async function getLoopSolveRunsForOps(
+  organizationId: string | null,
+  since: Date
+): Promise<LoopSolveRun[]> {
+  const supabase = getSupabaseClient();
+  let query = supabase
+    .from('loop_solve_runs')
+    .select('*')
+    .gte('created_at', since.toISOString())
+    .order('created_at', { ascending: false });
+
+  if (organizationId) {
+    query = query.eq('organization_id', organizationId);
+  }
+
+  const { data, error } = await query;
+
+  if (error) throw new Error(`Failed to get loop solve runs for ops: ${error.message}`);
+  return (data || []).map(mapToLoopSolveRun);
+}
+
+// Loop Bookings
+export async function createLoopBooking(
+  input: CreateLoopBookingInput
+): Promise<LoopBooking> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('loop_bookings')
+    .insert({
+      organization_id: input.organizationId,
+      availability_request_id: input.availabilityRequestId,
+      loop_template_id: input.loopTemplateId,
+      solve_run_id: input.solveRunId,
+      chosen_solution_id: input.chosenSolutionId,
+      status: 'PENDING',
+      commit_idempotency_key: input.commitIdempotencyKey,
+    })
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to create loop booking: ${error.message}`);
+  return mapToLoopBooking(data);
+}
+
+export async function getLoopBookingById(id: string): Promise<LoopBooking | null> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('loop_bookings')
+    .select('*')
+    .eq('id', id)
+    .limit(1);
+
+  if (error) throw new Error(`Failed to get loop booking: ${error.message}`);
+  if (!data || data.length === 0) return null;
+  return mapToLoopBooking(data[0]);
+}
+
+export async function getLoopBookingByIdempotencyKey(
+  key: string
+): Promise<LoopBooking | null> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('loop_bookings')
+    .select('*')
+    .eq('commit_idempotency_key', key)
+    .limit(1);
+
+  if (error) throw new Error(`Failed to get loop booking by idempotency key: ${error.message}`);
+  if (!data || data.length === 0) return null;
+  return mapToLoopBooking(data[0]);
+}
+
+export async function getLoopBookingByAvailabilityRequest(
+  availabilityRequestId: string
+): Promise<LoopBooking | null> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('loop_bookings')
+    .select('*')
+    .eq('availability_request_id', availabilityRequestId)
+    .eq('status', 'COMMITTED')
+    .limit(1);
+
+  if (error) throw new Error(`Failed to get loop booking by availability request: ${error.message}`);
+  if (!data || data.length === 0) return null;
+  return mapToLoopBooking(data[0]);
+}
+
+export async function updateLoopBookingStatus(
+  id: string,
+  status: LoopBookingStatus,
+  details?: {
+    errorMessage?: string;
+    rollbackAttempted?: boolean;
+    rollbackDetails?: RollbackDetails;
+  }
+): Promise<LoopBooking | null> {
+  const supabase = getSupabaseClient();
+  const updates: Record<string, unknown> = {
+    status,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (details?.errorMessage !== undefined) updates.error_message = details.errorMessage;
+  if (details?.rollbackAttempted !== undefined) updates.rollback_attempted = details.rollbackAttempted;
+  if (details?.rollbackDetails !== undefined) updates.rollback_details = details.rollbackDetails;
+
+  const { data, error } = await supabase
+    .from('loop_bookings')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null;
+    throw new Error(`Failed to update loop booking status: ${error.message}`);
+  }
+  return mapToLoopBooking(data);
+}
+
+export async function getLoopBookingsForOps(
+  organizationId: string | null,
+  since: Date
+): Promise<LoopBooking[]> {
+  const supabase = getSupabaseClient();
+  let query = supabase
+    .from('loop_bookings')
+    .select('*')
+    .gte('created_at', since.toISOString())
+    .order('created_at', { ascending: false });
+
+  if (organizationId) {
+    query = query.eq('organization_id', organizationId);
+  }
+
+  const { data, error } = await query;
+
+  if (error) throw new Error(`Failed to get loop bookings for ops: ${error.message}`);
+  return (data || []).map(mapToLoopBooking);
+}
+
+// Loop Booking Items
+export async function createLoopBookingItem(
+  input: CreateLoopBookingItemInput
+): Promise<LoopBookingItem> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('loop_booking_items')
+    .insert({
+      loop_booking_id: input.loopBookingId,
+      session_template_id: input.sessionTemplateId,
+      booking_id: input.bookingId,
+      calendar_event_id: input.calendarEventId,
+      status: 'confirmed',
+    })
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to create loop booking item: ${error.message}`);
+  return mapToLoopBookingItem(data);
+}
+
+export async function getLoopBookingItems(
+  loopBookingId: string
+): Promise<LoopBookingItem[]> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('loop_booking_items')
+    .select('*')
+    .eq('loop_booking_id', loopBookingId);
+
+  if (error) throw new Error(`Failed to get loop booking items: ${error.message}`);
+  return (data || []).map(mapToLoopBookingItem);
+}
+
+// Seed Loop Templates (for development)
+export async function seedLoopTemplates(organizationId: string, createdBy: string): Promise<void> {
+  // Check if already seeded
+  const existing = await getLoopTemplatesByOrg(organizationId, false);
+  if (existing.length > 0) {
+    return; // Already seeded
+  }
+
+  // Standard Tech Loop (3 sessions)
+  const standardTemplate = await createLoopTemplate({
+    organizationId,
+    name: 'Standard Tech Loop',
+    description: 'Standard technical interview loop: HM Screen, Technical Deep Dive, Values Interview',
+    createdBy,
+  });
+
+  await createLoopSessionTemplate({
+    loopTemplateId: standardTemplate.id,
+    order: 0,
+    name: 'HM Screen',
+    durationMinutes: 45,
+    interviewerPool: { emails: [], requiredCount: 1 },
+    constraints: { earliestStartLocal: '09:00', latestEndLocal: '17:00', minGapToNextMinutes: 15 },
+  });
+
+  await createLoopSessionTemplate({
+    loopTemplateId: standardTemplate.id,
+    order: 1,
+    name: 'Technical Deep Dive',
+    durationMinutes: 60,
+    interviewerPool: { emails: [], requiredCount: 1 },
+    constraints: { earliestStartLocal: '09:00', latestEndLocal: '17:00', minGapToNextMinutes: 15 },
+  });
+
+  await createLoopSessionTemplate({
+    loopTemplateId: standardTemplate.id,
+    order: 2,
+    name: 'Values Interview',
+    durationMinutes: 45,
+    interviewerPool: { emails: [], requiredCount: 1 },
+    constraints: { earliestStartLocal: '09:00', latestEndLocal: '17:00' },
+  });
+
+  // Light Loop (2 sessions)
+  const lightTemplate = await createLoopTemplate({
+    organizationId,
+    name: 'Light Loop',
+    description: 'Quick interview loop for initial screening: Phone Screen and Technical Assessment',
+    createdBy,
+  });
+
+  await createLoopSessionTemplate({
+    loopTemplateId: lightTemplate.id,
+    order: 0,
+    name: 'Phone Screen',
+    durationMinutes: 30,
+    interviewerPool: { emails: [], requiredCount: 1 },
+    constraints: { earliestStartLocal: '09:00', latestEndLocal: '17:00', minGapToNextMinutes: 15 },
+  });
+
+  await createLoopSessionTemplate({
+    loopTemplateId: lightTemplate.id,
+    order: 1,
+    name: 'Technical Assessment',
+    durationMinutes: 45,
+    interviewerPool: { emails: [], requiredCount: 1 },
+    constraints: { earliestStartLocal: '09:00', latestEndLocal: '17:00' },
+  });
+
+  // Full Loop (5 sessions)
+  const fullTemplate = await createLoopTemplate({
+    organizationId,
+    name: 'Full Loop',
+    description: 'Comprehensive interview loop: HM Screen, System Design, Coding, Values, Executive',
+    createdBy,
+  });
+
+  await createLoopSessionTemplate({
+    loopTemplateId: fullTemplate.id,
+    order: 0,
+    name: 'HM Screen',
+    durationMinutes: 45,
+    interviewerPool: { emails: [], requiredCount: 1 },
+    constraints: { earliestStartLocal: '09:00', latestEndLocal: '17:00', minGapToNextMinutes: 15 },
+  });
+
+  await createLoopSessionTemplate({
+    loopTemplateId: fullTemplate.id,
+    order: 1,
+    name: 'System Design',
+    durationMinutes: 60,
+    interviewerPool: { emails: [], requiredCount: 1 },
+    constraints: { earliestStartLocal: '09:00', latestEndLocal: '17:00', minGapToNextMinutes: 15 },
+  });
+
+  await createLoopSessionTemplate({
+    loopTemplateId: fullTemplate.id,
+    order: 2,
+    name: 'Coding Interview',
+    durationMinutes: 60,
+    interviewerPool: { emails: [], requiredCount: 1 },
+    constraints: { earliestStartLocal: '09:00', latestEndLocal: '17:00', minGapToNextMinutes: 15 },
+  });
+
+  await createLoopSessionTemplate({
+    loopTemplateId: fullTemplate.id,
+    order: 3,
+    name: 'Values Interview',
+    durationMinutes: 45,
+    interviewerPool: { emails: [], requiredCount: 1 },
+    constraints: { earliestStartLocal: '09:00', latestEndLocal: '17:00', minGapToNextMinutes: 15 },
+  });
+
+  await createLoopSessionTemplate({
+    loopTemplateId: fullTemplate.id,
+    order: 4,
+    name: 'Executive Interview',
+    durationMinutes: 30,
+    interviewerPool: { emails: [], requiredCount: 1 },
+    constraints: { earliestStartLocal: '09:00', latestEndLocal: '17:00' },
+  });
+}
+
+// Clear Loop Stores (for testing)
+export async function clearLoopStores(): Promise<void> {
+  const supabase = getSupabaseClient();
+  await supabase.from('loop_booking_items').delete().neq('id', '');
+  await supabase.from('loop_bookings').delete().neq('id', '');
+  await supabase.from('loop_solve_runs').delete().neq('id', '');
+  await supabase.from('loop_session_templates').delete().neq('id', '');
+  await supabase.from('loop_templates').delete().neq('id', '');
+}
+
+// ============================================
 // Reset (for testing) - Truncates all tables
 // ============================================
 
@@ -2760,6 +3446,13 @@ export async function resetDatabase(): Promise<void> {
   const supabase = getSupabaseClient();
 
   // Delete in order respecting foreign key constraints
+  // Loop Autopilot tables first (new in M18)
+  await supabase.from('loop_booking_items').delete().neq('id', '');
+  await supabase.from('loop_bookings').delete().neq('id', '');
+  await supabase.from('loop_solve_runs').delete().neq('id', '');
+  await supabase.from('loop_session_templates').delete().neq('id', '');
+  await supabase.from('loop_templates').delete().neq('id', '');
+  // Existing tables
   await supabase.from('scheduling_recommendations').delete().neq('id', '');
   await supabase.from('interviewer_load_rollups').delete().neq('id', '');
   await supabase.from('interviewer_profiles').delete().neq('id', '');
