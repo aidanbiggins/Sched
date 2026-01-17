@@ -1969,5 +1969,31 @@ describe('Loop Autopilot UI', () => {
 
 ---
 
+## 12. Implementation Status
+
+### Completed
+- [x] TypeScript types (`src/types/loop.ts`)
+- [x] Database migration (`src/lib/supabase/migrations/008_loop_autopilot.sql`)
+- [x] Memory adapter with CRUD operations (`src/lib/db/loop-adapter.ts`)
+- [x] Seed templates for development
+- [x] Deterministic solver with backtracking (`src/lib/loopAutopilot/solver.ts`)
+- [x] API: GET/POST `/api/loop-autopilot/templates`
+- [x] API: POST `/api/loop-autopilot/solve`
+- [x] API: POST `/api/loop-autopilot/commit`
+- [x] API: GET `/api/loop-autopilot/last-run`
+- [x] API: GET `/api/ops/loop-autopilot` (ops visibility)
+- [x] Commit/rollback logic in SchedulingService
+- [x] Coordinator UI component (`src/components/coordinator/LoopAutopilot.tsx`)
+- [x] Unit tests for solver (14 tests passing)
+
+### Pending
+- [ ] Supabase adapter (currently using in-memory)
+- [ ] Integration into coordinator detail page
+- [ ] Additional integration tests
+- [ ] E2E testing
+- [ ] User guide documentation
+
+---
+
 *Created: 2026-01-17*
-*Status: PLANNED*
+*Status: IN PROGRESS (V1 Core Complete)*

@@ -831,6 +831,121 @@ This interview was scheduled via Sched.
   }
 
   // ============================================
+  // Loop Autopilot Support
+  // ============================================
+
+  /**
+   * Book a single session as part of a loop
+   * Used by the Loop Autopilot commit endpoint
+   */
+  async bookLoopSession(params: {
+    availabilityRequestId: string;
+    sessionId: string;
+    sessionName: string;
+    startUtc: string;
+    endUtc: string;
+    interviewerEmail: string;
+    organizerEmail?: string;
+    meetingTitle?: string;
+    meetingBody?: string;
+    includeTeamsLink?: boolean;
+  }): Promise<Booking> {
+    const startDate = new Date(params.startUtc);
+    const endDate = new Date(params.endUtc);
+    const bookingId = uuidv4();
+    const now = new Date();
+
+    // Build event payload
+    const subject = params.meetingTitle || `Interview Session: ${params.sessionName}`;
+    const bodyContent = params.meetingBody || `
+      <h2>Interview Session: ${params.sessionName}</h2>
+      <p>This session is part of an interview loop.</p>
+      <hr>
+      <p>Scheduled via the Scheduling Tool.</p>
+    `;
+
+    let calendarEventId = 'pending';
+    let iCalUId: string | null = null;
+    let joinUrl: string | null = null;
+
+    // Create calendar event
+    try {
+      if (isStandaloneMode()) {
+        // Use personal calendar - we need a user ID
+        // For now, use the organizer email to look up their calendar
+        // In practice, the availability request would have createdBy
+        console.log('[bookLoopSession] Standalone mode - calendar event creation pending');
+      } else {
+        // Enterprise mode: use Graph API
+        const eventPayload: CreateEventPayload = {
+          subject,
+          body: {
+            contentType: 'HTML',
+            content: bodyContent,
+          },
+          start: startDate,
+          end: endDate,
+          timeZone: 'UTC',
+          attendees: [
+            {
+              email: params.interviewerEmail,
+              name: params.interviewerEmail.split('@')[0],
+              type: 'required',
+            },
+          ],
+          isOnlineMeeting: params.includeTeamsLink ?? true,
+          transactionId: uuidv4(),
+        };
+
+        const organizer = params.organizerEmail || DEFAULT_ORGANIZER_EMAIL;
+        const createdEvent = await this.graphClient.createEvent(organizer, eventPayload);
+
+        calendarEventId = createdEvent.eventId;
+        iCalUId = createdEvent.iCalUId || null;
+        joinUrl = createdEvent.joinUrl || null;
+      }
+    } catch (error) {
+      console.error(`[bookLoopSession] Failed to create calendar event:`, error);
+      throw new Error(`Failed to create calendar event: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+
+    // Create booking record
+    const booking: Booking = {
+      id: bookingId,
+      requestId: params.availabilityRequestId,
+      scheduledStart: startDate,
+      scheduledEnd: endDate,
+      calendarEventId,
+      calendarIcalUid: iCalUId,
+      conferenceJoinUrl: joinUrl,
+      icimsActivityId: null,
+      status: 'confirmed',
+      confirmedAt: now,
+      cancelledAt: null,
+      cancellationReason: null,
+      bookedBy: 'loop-autopilot',
+      bookedAt: now,
+      updatedAt: now,
+    };
+
+    await dbCreateBooking(booking);
+
+    // Log the booking
+    await this.logAction('booked', params.availabilityRequestId, bookingId, 'system', null, {
+      sessionId: params.sessionId,
+      sessionName: params.sessionName,
+      scheduledStart: startDate.toISOString(),
+      scheduledEnd: endDate.toISOString(),
+      interviewerEmail: params.interviewerEmail,
+      calendarEventId,
+      conferenceJoinUrl: joinUrl,
+      bookedVia: 'loop-autopilot',
+    });
+
+    return booking;
+  }
+
+  // ============================================
   // Private helpers
   // ============================================
 

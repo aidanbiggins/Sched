@@ -541,3 +541,42 @@ export const upsertCoordinatorPreferences = isSupabase
 export const deleteCoordinatorPreferences = isSupabase
   ? supabaseAdapter.deleteCoordinatorPreferences
   : memoryAdapter.deleteCoordinatorPreferences;
+
+// ============================================
+// Loop Autopilot (M18)
+// ============================================
+
+export {
+  // Loop Templates
+  createLoopTemplate,
+  getLoopTemplateById,
+  getLoopTemplatesByOrg,
+  getLoopTemplateWithSessions,
+  updateLoopTemplate,
+  deleteLoopTemplate,
+  // Loop Session Templates
+  createLoopSessionTemplate,
+  getLoopSessionTemplatesByTemplateId,
+  deleteLoopSessionTemplate,
+  // Loop Solve Runs
+  createLoopSolveRun,
+  getLoopSolveRunById,
+  getLoopSolveRunByIdempotencyKey,
+  getLatestLoopSolveRun,
+  updateLoopSolveRunResult,
+  updateLoopSolveRunError,
+  getLoopSolveRunsForOps,
+  // Loop Bookings
+  createLoopBooking,
+  getLoopBookingById,
+  getLoopBookingByIdempotencyKey,
+  getLoopBookingByAvailabilityRequest,
+  updateLoopBookingStatus,
+  getLoopBookingsForOps,
+  // Loop Booking Items
+  createLoopBookingItem,
+  getLoopBookingItems,
+  // Seeding
+  seedLoopTemplates,
+  clearLoopStores,
+} from './loop-adapter';
