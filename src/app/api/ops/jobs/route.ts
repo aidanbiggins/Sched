@@ -14,6 +14,7 @@ import {
   webhookWorkerService,
   reconcileWorkerService,
   capacityWorkerService,
+  escalationWorkerService,
 } from '@/lib/workers';
 
 // Worker services map
@@ -23,6 +24,7 @@ const workerServices: Record<JobName, { getQueueDepth: () => Promise<number> }> 
   webhook: webhookWorkerService,
   reconcile: reconcileWorkerService,
   capacity: capacityWorkerService,
+  escalation: escalationWorkerService,
 };
 
 /**

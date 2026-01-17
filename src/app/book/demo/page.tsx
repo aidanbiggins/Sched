@@ -31,10 +31,9 @@ function generateMockSlots(): Slot[] {
   for (let day = 1; day <= 5; day++) {
     const date = new Date(now);
     date.setDate(date.getDate() + day);
+    // Deterministic slot times to avoid hydration mismatch
     const times = [9, 10, 11, 14, 15, 16];
-    const numSlots = 3 + Math.floor(Math.random() * 3);
-    const selectedTimes = times.sort(() => Math.random() - 0.5).slice(0, numSlots);
-    for (const hour of selectedTimes.sort((a, b) => a - b)) {
+    for (const hour of times) {
       const start = new Date(date);
       start.setHours(hour, 0, 0, 0);
       const end = new Date(start);
@@ -75,19 +74,23 @@ function formatSlotTime(slot: Slot, timezone: string): string {
 }
 
 export default function DemoBookingPage() {
-  const [slots] = useState<Slot[]>(() => generateMockSlots());
+  const [slots, setSlots] = useState<Slot[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
   const [booking, setBooking] = useState(false);
   const [step, setStep] = useState<Step>('select');
   const [timezone, setTimezone] = useState<string>('America/New_York');
+  const [mounted, setMounted] = useState(false);
 
+  // Generate slots and detect timezone only on client to avoid hydration mismatch
   useEffect(() => {
+    setSlots(generateMockSlots());
     try {
       const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
       if (detected) setTimezone(detected);
     } catch {
       // Keep default
     }
+    setMounted(true);
   }, []);
 
   async function handleBook() {
@@ -99,6 +102,32 @@ export default function DemoBookingPage() {
   }
 
   const groupedSlots = groupSlotsByDate(slots, timezone);
+
+  // Loading state to prevent hydration mismatch
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <div className="bg-blue-600 text-white text-center py-2 text-sm font-medium">
+          Demo Mode - Preview with Mock Data
+        </div>
+        <div className="max-w-2xl mx-auto px-4 py-12">
+          <div className="text-center mb-8">
+            <h1 className="text-2xl font-bold text-gray-900">Schedule Your Interview</h1>
+            <p className="text-gray-600 mt-2">Senior Software Engineer · 60 minutes</p>
+          </div>
+          <div className="bg-white rounded-lg shadow p-8">
+            <div className="flex items-center justify-center">
+              <svg className="animate-spin h-8 w-8 text-blue-600" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              <span className="ml-3 text-gray-600">Loading available times...</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Progress Steps Component
   const ProgressSteps = ({ currentStep }: { currentStep: Step }) => {

@@ -117,6 +117,30 @@ export default function DemoPage() {
           </p>
         </div>
 
+        {/* Guided Tour CTA */}
+        <Link
+          href="/demo/walkthrough"
+          className="block mb-10 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl p-6 text-white hover:from-indigo-700 hover:to-purple-700 transition group"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-white/20 rounded-lg flex items-center justify-center">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="font-semibold text-lg mb-1">New here? Take a guided tour</h3>
+                <p className="text-white/80 text-sm">See the complete scheduling flow in 60 seconds - no sign-up required</p>
+              </div>
+            </div>
+            <svg className="w-6 h-6 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+            </svg>
+          </div>
+        </Link>
+
         {/* Demo Flow Steps */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
           {/* Step 1 */}

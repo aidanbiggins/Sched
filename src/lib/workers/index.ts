@@ -9,3 +9,4 @@ export { syncWorkerService } from './syncWorker';
 export { webhookWorkerService } from './webhookWorker';
 export { reconcileWorkerService } from './reconcileWorker';
 export { capacityWorkerService } from './capacityWorker';
+export { escalationWorkerService } from './escalationWorker';

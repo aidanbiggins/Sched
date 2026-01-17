@@ -34,6 +34,7 @@ import {
   NotificationStatus,
   NotificationType,
   NotificationEntityType,
+  CoordinatorNotificationPreferences,
 } from '@/types/scheduling';
 import {
   InterviewerProfile,
@@ -2651,6 +2652,96 @@ export async function expireOldRecommendations(): Promise<number> {
 }
 
 // ============================================
+// Coordinator Notification Preferences (M16)
+// ============================================
+
+function mapCoordinatorPreferencesRow(row: any): CoordinatorNotificationPreferences {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    organizationId: row.organization_id,
+    notifyOnBooking: row.notify_on_booking,
+    notifyOnCancel: row.notify_on_cancel,
+    notifyOnEscalation: row.notify_on_escalation,
+    digestFrequency: row.digest_frequency,
+    createdAt: new Date(row.created_at),
+    updatedAt: new Date(row.updated_at),
+  };
+}
+
+export async function getCoordinatorPreferences(
+  userId: string,
+  organizationId: string
+): Promise<CoordinatorNotificationPreferences | null> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('coordinator_notification_preferences')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('organization_id', organizationId)
+    .single();
+
+  if (error) {
+    if (error.code === 'PGRST116') return null; // Not found
+    throw new Error(`Failed to get coordinator preferences: ${error.message}`);
+  }
+  return data ? mapCoordinatorPreferencesRow(data) : null;
+}
+
+export async function getCoordinatorPreferencesByOrg(
+  organizationId: string
+): Promise<CoordinatorNotificationPreferences[]> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('coordinator_notification_preferences')
+    .select('*')
+    .eq('organization_id', organizationId);
+
+  if (error) throw new Error(`Failed to get org coordinator preferences: ${error.message}`);
+  return (data || []).map(mapCoordinatorPreferencesRow);
+}
+
+export async function upsertCoordinatorPreferences(
+  preferences: CoordinatorNotificationPreferences
+): Promise<CoordinatorNotificationPreferences> {
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from('coordinator_notification_preferences')
+    .upsert({
+      id: preferences.id,
+      user_id: preferences.userId,
+      organization_id: preferences.organizationId,
+      notify_on_booking: preferences.notifyOnBooking,
+      notify_on_cancel: preferences.notifyOnCancel,
+      notify_on_escalation: preferences.notifyOnEscalation,
+      digest_frequency: preferences.digestFrequency,
+      updated_at: new Date().toISOString(),
+    }, {
+      onConflict: 'user_id,organization_id',
+    })
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to upsert coordinator preferences: ${error.message}`);
+  return mapCoordinatorPreferencesRow(data);
+}
+
+export async function deleteCoordinatorPreferences(
+  userId: string,
+  organizationId: string
+): Promise<boolean> {
+  const supabase = getSupabaseClient();
+  const { error } = await supabase
+    .from('coordinator_notification_preferences')
+    .delete()
+    .eq('user_id', userId)
+    .eq('organization_id', organizationId);
+
+  if (error) throw new Error(`Failed to delete coordinator preferences: ${error.message}`);
+  return true;
+}
+
+// ============================================
 // Reset (for testing) - Truncates all tables
 // ============================================
 
@@ -2661,6 +2752,7 @@ export async function resetDatabase(): Promise<void> {
   await supabase.from('scheduling_recommendations').delete().neq('id', '');
   await supabase.from('interviewer_load_rollups').delete().neq('id', '');
   await supabase.from('interviewer_profiles').delete().neq('id', '');
+  await supabase.from('coordinator_notification_preferences').delete().neq('id', '');
   await supabase.from('notification_attempts').delete().neq('id', '');
   await supabase.from('notification_jobs').delete().neq('id', '');
   await supabase.from('candidate_availability_blocks').delete().neq('id', '');

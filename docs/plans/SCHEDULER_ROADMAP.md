@@ -6,8 +6,8 @@ Single source of truth for the Interview Scheduling Tool milestones and progress
 
 ## Current Status
 
-**Current Milestone:** M15 - Scheduling Intelligence & Capacity Planning - Complete
-**Next Milestone:** TBD
+**Current Milestone:** M16 - Communications & Portal Hardening - Complete
+**Next Milestone:** M17 - Polish & Production Prep
 
 **Tests:** See `npm test` | **Build:** Successful
 
@@ -528,6 +528,51 @@ Single source of truth for the Interview Scheduling Tool milestones and progress
 - [x] Build passes
 
 **Plan Document:** `docs/plans/SCHEDULING_INTELLIGENCE_CAPACITY.md`
+
+---
+
+### M16: Communications & Portal Hardening - Complete
+- [x] 6 new email templates (coordinator notifications, escalation, interviewer)
+- [x] Template enhancements (.ics attachments, calendar links)
+- [x] No-response escalation workflow (48h → 96h → 120h → 168h)
+- [x] Escalation cron job (hourly)
+- [x] Message history panel for coordinators
+- [x] Resend UX with rate limiting
+- [x] Coordinator notification preferences
+- [x] Candidate dashboard (`/my-interviews/[token]`)
+- [x] Portal UX improvements (step indicators, calendar buttons)
+
+**New Tables:**
+- `escalation_config` - Org-level escalation timing settings
+- `coordinator_notification_preferences` - Per-user notification preferences
+
+**New Notification Types:**
+- `escalation_no_response` - Candidate not responding
+- `escalation_expired` - Request auto-expired
+- `coordinator_booking` - Candidate booked
+- `coordinator_cancel` - Candidate cancelled
+- `interviewer_notification` - Interview scheduled
+- `interviewer_reminder` - Interviewer reminder
+
+**Definition of Done:**
+- [x] Database migration applied (007_comms_portal_hardening.sql)
+- [x] 6 new email templates created and tested
+- [x] Existing templates enhanced with .ics attachments and calendar links
+- [x] Escalation service functional with correct timing
+- [x] Escalation cron job running hourly
+- [x] Message history visible in coordinator dashboard
+- [x] Resend buttons functional with rate limiting
+- [x] Coordinator notification preferences UI and API
+- [x] Candidate dashboard with step indicators and calendar download
+- [x] Booking page with Add to Calendar buttons
+- [ ] Coordinator notification preferences working
+- [ ] Candidate dashboard accessible via token
+- [ ] Portal UX improvements applied
+- [ ] All tests passing
+- [ ] `npm run build` passes
+- [ ] Manual E2E testing complete
+
+**Plan Document:** `docs/plans/COMMS_AND_PORTAL_HARDENING.md`
 
 ---
 

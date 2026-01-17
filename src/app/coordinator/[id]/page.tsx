@@ -2,6 +2,7 @@
 
 import { useState, useEffect, use } from 'react';
 import Link from 'next/link';
+import MessageHistory from '@/components/coordinator/MessageHistory';
 
 // Types
 interface AvailableSlot {
@@ -632,6 +633,13 @@ export default function RequestDetailPage({
                 )}
               </div>
             </div>
+
+            {/* Message History */}
+            <MessageHistory
+              requestId={request.id}
+              candidateEmail={request.candidateEmail}
+              publicToken={request.publicToken}
+            />
 
             {/* Timeline */}
             <div className="bg-white border border-slate-200 rounded-lg">

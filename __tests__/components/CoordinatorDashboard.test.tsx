@@ -12,6 +12,22 @@ jest.mock('next/link', () => {
   );
 });
 
+// Mock next-auth
+jest.mock('next-auth/react', () => ({
+  useSession: () => ({
+    data: {
+      user: {
+        id: 'test-user-id',
+        email: 'test@example.com',
+        name: 'Test User',
+      },
+      expires: '2099-01-01T00:00:00.000Z',
+    },
+    status: 'authenticated',
+  }),
+  SessionProvider: ({ children }: { children: React.ReactNode }) => children,
+}));
+
 // Mock next/navigation
 const mockReplace = jest.fn();
 jest.mock('next/navigation', () => ({

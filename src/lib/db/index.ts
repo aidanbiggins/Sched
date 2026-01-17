@@ -521,3 +521,23 @@ export const markRecommendationActed = isSupabase
 export const expireOldRecommendations = isSupabase
   ? supabaseAdapter.expireOldRecommendations
   : memoryAdapter.expireOldRecommendations;
+
+// ============================================
+// Coordinator Notification Preferences (M16)
+// ============================================
+
+export const getCoordinatorPreferences = isSupabase
+  ? supabaseAdapter.getCoordinatorPreferences
+  : memoryAdapter.getCoordinatorPreferences;
+
+export const getCoordinatorPreferencesByOrg = isSupabase
+  ? supabaseAdapter.getCoordinatorPreferencesByOrg
+  : memoryAdapter.getCoordinatorPreferencesByOrg;
+
+export const upsertCoordinatorPreferences = isSupabase
+  ? supabaseAdapter.upsertCoordinatorPreferences
+  : memoryAdapter.upsertCoordinatorPreferences;
+
+export const deleteCoordinatorPreferences = isSupabase
+  ? supabaseAdapter.deleteCoordinatorPreferences
+  : memoryAdapter.deleteCoordinatorPreferences;

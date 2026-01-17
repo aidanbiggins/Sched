@@ -21,6 +21,13 @@ export {
   rescheduleConfirmationTemplate,
   cancelNoticeTemplate,
   reminderTemplate,
+  nudgeReminderTemplate,
+  escalationNoResponseTemplate,
+  escalationExpiredTemplate,
+  coordinatorBookingTemplate,
+  coordinatorCancelTemplate,
+  interviewerNotificationTemplate,
+  interviewerReminderTemplate,
   type EmailTemplate,
 } from './templates';
 
@@ -36,4 +43,20 @@ export {
   enqueueResendSelfScheduleLink,
   enqueueResendBookingConfirmation,
   enqueueResendAvailabilityRequest,
+  // Coordinator notifications (M16)
+  enqueueCoordinatorBookingNotification,
+  enqueueCoordinatorCancelNotification,
+  enqueueEscalationNotification,
 } from './NotificationService';
+
+// ICS calendar generator
+export {
+  generateIcsContent,
+  generateGoogleCalendarUrl,
+  generateOutlookCalendarUrl,
+  generateOffice365CalendarUrl,
+  generateCalendarLinks,
+  createInterviewEventData,
+  type CalendarEventData,
+  type CalendarLinks,
+} from './icsGenerator';

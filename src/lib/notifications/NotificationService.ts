@@ -14,10 +14,12 @@ import {
   SchedulingRequest,
   Booking,
   AvailabilityRequest,
+  CoordinatorNotificationPreferences,
 } from '@/types/scheduling';
 import {
   createNotificationJob,
   cancelPendingNotificationJobsByEntity,
+  getCoordinatorPreferences,
 } from '@/lib/db';
 
 // ============================================
@@ -461,6 +463,189 @@ export async function enqueueResendAvailabilityRequest(
       expiresAt: request.expiresAt.toISOString(),
       windowStart: request.windowStart.toISOString(),
       windowEnd: request.windowEnd.toISOString(),
+    },
+    idempotencyDiscriminator: discriminator,
+  });
+}
+
+// ============================================
+// Coordinator Notifications (M16)
+// ============================================
+
+/**
+ * Get default preferences for when user has no saved preferences
+ */
+function getDefaultCoordinatorPreferences(): Omit<CoordinatorNotificationPreferences, 'id' | 'userId' | 'organizationId' | 'createdAt' | 'updatedAt'> {
+  return {
+    notifyOnBooking: true,
+    notifyOnCancel: true,
+    notifyOnEscalation: true,
+    digestFrequency: 'immediate',
+  };
+}
+
+/**
+ * Check if coordinator should be notified based on preferences
+ */
+async function shouldNotifyCoordinator(
+  userId: string,
+  organizationId: string,
+  notificationType: 'booking' | 'cancel' | 'escalation'
+): Promise<boolean> {
+  const prefs = await getCoordinatorPreferences(userId, organizationId);
+  const effectivePrefs = prefs || getDefaultCoordinatorPreferences();
+
+  // Check immediate frequency - digest modes would be handled by a separate batch job
+  if (effectivePrefs.digestFrequency !== 'immediate') {
+    return false; // Digest mode - don't send immediate notification
+  }
+
+  switch (notificationType) {
+    case 'booking':
+      return effectivePrefs.notifyOnBooking;
+    case 'cancel':
+      return effectivePrefs.notifyOnCancel;
+    case 'escalation':
+      return effectivePrefs.notifyOnEscalation;
+    default:
+      return false;
+  }
+}
+
+/**
+ * Enqueue coordinator booking notification
+ * Sent when a candidate books an interview
+ */
+export async function enqueueCoordinatorBookingNotification(
+  request: SchedulingRequest,
+  booking: Booking,
+  coordinatorUserId: string,
+  coordinatorEmail: string,
+  coordinatorName: string,
+  tenantId?: string
+): Promise<NotificationJob | null> {
+  // Check if coordinator wants this notification
+  const organizationId = request.organizationId || '';
+  if (organizationId && !(await shouldNotifyCoordinator(coordinatorUserId, organizationId, 'booking'))) {
+    return null;
+  }
+
+  const scheduledStartLocal = DateTime.fromJSDate(booking.scheduledStart, { zone: 'UTC' })
+    .setZone(request.candidateTimezone)
+    .toFormat("EEEE, MMMM d, yyyy 'at' h:mm a ZZZZ");
+
+  return createJob({
+    tenantId,
+    type: 'coordinator_booking',
+    entityType: 'booking',
+    entityId: booking.id,
+    toEmail: coordinatorEmail,
+    payload: {
+      coordinatorEmail,
+      coordinatorName,
+      candidateName: request.candidateName,
+      candidateEmail: request.candidateEmail,
+      reqTitle: request.reqTitle,
+      interviewType: request.interviewType,
+      scheduledStartUtc: booking.scheduledStart.toISOString(),
+      scheduledEndUtc: booking.scheduledEnd.toISOString(),
+      scheduledStartLocal,
+      conferenceJoinUrl: booking.conferenceJoinUrl,
+    },
+  });
+}
+
+/**
+ * Enqueue coordinator cancel notification
+ * Sent when a candidate cancels their interview
+ */
+export async function enqueueCoordinatorCancelNotification(
+  request: SchedulingRequest,
+  booking: Booking,
+  reason: string | null,
+  coordinatorUserId: string,
+  coordinatorEmail: string,
+  coordinatorName: string,
+  tenantId?: string
+): Promise<NotificationJob | null> {
+  // Check if coordinator wants this notification
+  const organizationId = request.organizationId || '';
+  if (organizationId && !(await shouldNotifyCoordinator(coordinatorUserId, organizationId, 'cancel'))) {
+    return null;
+  }
+
+  const scheduledStartLocal = DateTime.fromJSDate(booking.scheduledStart, { zone: 'UTC' })
+    .setZone(request.candidateTimezone)
+    .toFormat("EEEE, MMMM d, yyyy 'at' h:mm a ZZZZ");
+
+  // Use timestamp discriminator since multiple cancels might happen
+  const discriminator = `cancel-${Date.now()}`;
+
+  return createJob({
+    tenantId,
+    type: 'coordinator_cancel',
+    entityType: 'booking',
+    entityId: booking.id,
+    toEmail: coordinatorEmail,
+    payload: {
+      coordinatorEmail,
+      coordinatorName,
+      candidateName: request.candidateName,
+      candidateEmail: request.candidateEmail,
+      reqTitle: request.reqTitle,
+      interviewType: request.interviewType,
+      scheduledStartUtc: booking.scheduledStart.toISOString(),
+      scheduledEndUtc: booking.scheduledEnd.toISOString(),
+      scheduledStartLocal,
+      reason,
+    },
+    idempotencyDiscriminator: discriminator,
+  });
+}
+
+/**
+ * Enqueue escalation notification to coordinator
+ * Sent when a candidate hasn't responded for a configured period
+ */
+export async function enqueueEscalationNotification(
+  request: SchedulingRequest | AvailabilityRequest,
+  requestType: 'availability' | 'booking',
+  coordinatorUserId: string,
+  coordinatorEmail: string,
+  coordinatorName: string,
+  daysSinceRequest: number,
+  isExpired: boolean,
+  tenantId?: string
+): Promise<NotificationJob | null> {
+  // Check if coordinator wants this notification
+  const organizationId = 'organizationId' in request ? request.organizationId || '' : '';
+  if (organizationId && !(await shouldNotifyCoordinator(coordinatorUserId, organizationId, 'escalation'))) {
+    return null;
+  }
+
+  const publicLink = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'}/coordinator/${request.id}`;
+  const notificationType: NotificationType = isExpired ? 'escalation_expired' : 'escalation_no_response';
+
+  // Use day bucket for idempotency - one escalation per day per request
+  const discriminator = `escalation-day-${daysSinceRequest}`;
+
+  return createJob({
+    tenantId,
+    type: notificationType,
+    entityType: requestType === 'availability' ? 'availability_request' : 'scheduling_request',
+    entityId: request.id,
+    toEmail: coordinatorEmail,
+    payload: {
+      coordinatorEmail,
+      coordinatorName,
+      candidateName: request.candidateName,
+      candidateEmail: request.candidateEmail,
+      reqTitle: request.reqTitle,
+      interviewType: request.interviewType,
+      requestId: request.id,
+      requestType,
+      daysSinceRequest,
+      publicLink,
     },
     idempotencyDiscriminator: discriminator,
   });

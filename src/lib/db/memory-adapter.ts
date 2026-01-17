@@ -24,6 +24,7 @@ import {
   NotificationAttempt,
   NotificationStatus,
   NotificationType,
+  CoordinatorNotificationPreferences,
 } from '@/types/scheduling';
 import {
   InterviewerProfile,
@@ -55,6 +56,7 @@ interface Store {
   interviewerProfiles: Map<string, InterviewerProfile>;
   loadRollups: Map<string, InterviewerLoadRollup>;
   recommendations: Map<string, SchedulingRecommendation>;
+  coordinatorPreferences: Map<string, CoordinatorNotificationPreferences>;
 }
 
 const store: Store = {
@@ -73,6 +75,7 @@ const store: Store = {
   interviewerProfiles: new Map(),
   loadRollups: new Map(),
   recommendations: new Map(),
+  coordinatorPreferences: new Map(),
 };
 
 // ============================================
@@ -1456,6 +1459,66 @@ export async function expireOldRecommendations(): Promise<number> {
 }
 
 // ============================================
+// Coordinator Notification Preferences (M16)
+// ============================================
+
+export async function getCoordinatorPreferences(
+  userId: string,
+  organizationId: string
+): Promise<CoordinatorNotificationPreferences | null> {
+  const key = `${userId}:${organizationId}`;
+  return store.coordinatorPreferences.get(key) || null;
+}
+
+export async function getCoordinatorPreferencesByOrg(
+  organizationId: string
+): Promise<CoordinatorNotificationPreferences[]> {
+  const results: CoordinatorNotificationPreferences[] = [];
+  for (const prefs of store.coordinatorPreferences.values()) {
+    if (prefs.organizationId === organizationId) {
+      results.push(prefs);
+    }
+  }
+  return results;
+}
+
+export async function upsertCoordinatorPreferences(
+  preferences: CoordinatorNotificationPreferences
+): Promise<CoordinatorNotificationPreferences> {
+  const key = `${preferences.userId}:${preferences.organizationId}`;
+  const existing = store.coordinatorPreferences.get(key);
+
+  if (existing) {
+    // Update existing
+    const updated = {
+      ...existing,
+      ...preferences,
+      updatedAt: new Date(),
+    };
+    store.coordinatorPreferences.set(key, updated);
+    return updated;
+  } else {
+    // Create new
+    const now = new Date();
+    const newPrefs = {
+      ...preferences,
+      createdAt: preferences.createdAt || now,
+      updatedAt: now,
+    };
+    store.coordinatorPreferences.set(key, newPrefs);
+    return newPrefs;
+  }
+}
+
+export async function deleteCoordinatorPreferences(
+  userId: string,
+  organizationId: string
+): Promise<boolean> {
+  const key = `${userId}:${organizationId}`;
+  return store.coordinatorPreferences.delete(key);
+}
+
+// ============================================
 // Reset (for testing)
 // ============================================
 
@@ -1475,4 +1538,5 @@ export function resetDatabase(): void {
   store.interviewerProfiles.clear();
   store.loadRollups.clear();
   store.recommendations.clear();
+  store.coordinatorPreferences.clear();
 }

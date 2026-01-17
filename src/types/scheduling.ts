@@ -539,7 +539,14 @@ export type NotificationType =
   | 'reschedule_confirmation'
   | 'cancel_notice'
   | 'reminder_24h'
-  | 'reminder_2h';
+  | 'reminder_2h'
+  | 'nudge_reminder'
+  | 'escalation_no_response'
+  | 'escalation_expired'
+  | 'coordinator_booking'
+  | 'coordinator_cancel'
+  | 'interviewer_notification'
+  | 'interviewer_reminder';
 
 export type NotificationStatus = 'PENDING' | 'SENDING' | 'SENT' | 'FAILED' | 'CANCELED';
 
@@ -651,4 +658,102 @@ export interface ReminderPayload extends NotificationPayloadBase {
   scheduledEndLocal: string;
   conferenceJoinUrl: string | null;
   hoursUntil: number;
+}
+
+// ============================================
+// Escalation Types (M16)
+// ============================================
+
+/**
+ * EscalationConfig - Organization-level escalation timing settings
+ */
+export interface EscalationConfig {
+  id: string;
+  organizationId: string;
+  initialReminderHours: number;
+  secondReminderHours: number;
+  escalateToCoordinatorHours: number;
+  autoExpireHours: number;
+  enableReminders: boolean;
+  enableEscalation: boolean;
+  enableAutoExpire: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * CoordinatorNotificationPreferences - Per-user notification preferences
+ */
+export interface CoordinatorNotificationPreferences {
+  id: string;
+  userId: string;
+  organizationId: string;
+  notifyOnBooking: boolean;
+  notifyOnCancel: boolean;
+  notifyOnEscalation: boolean;
+  digestFrequency: 'immediate' | 'daily' | 'weekly';
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * NudgeReminderPayload - Payload for candidate nudge reminders
+ */
+export interface NudgeReminderPayload extends NotificationPayloadBase {
+  publicLink: string;
+  requestType: 'availability' | 'booking';
+  daysSinceRequest: number;
+  isUrgent: boolean;
+}
+
+/**
+ * EscalationPayload - Payload for coordinator escalation notifications
+ */
+export interface EscalationPayload {
+  coordinatorEmail: string;
+  coordinatorName: string;
+  candidateName: string;
+  candidateEmail: string;
+  reqTitle: string;
+  interviewType: string;
+  requestId: string;
+  requestType: 'availability' | 'booking';
+  daysSinceRequest: number;
+  publicLink: string;
+  organizationName?: string;
+}
+
+/**
+ * CoordinatorBookingPayload - Payload when candidate books/cancels
+ */
+export interface CoordinatorBookingPayload {
+  coordinatorEmail: string;
+  coordinatorName: string;
+  candidateName: string;
+  candidateEmail: string;
+  reqTitle: string;
+  interviewType: string;
+  scheduledStartUtc: string;
+  scheduledEndUtc: string;
+  scheduledStartLocal: string;
+  scheduledEndLocal: string;
+  conferenceJoinUrl: string | null;
+  organizationName?: string;
+}
+
+/**
+ * InterviewerNotificationPayload - Payload for interviewer notifications
+ */
+export interface InterviewerNotificationPayload {
+  interviewerEmail: string;
+  interviewerName: string;
+  candidateName: string;
+  reqTitle: string;
+  interviewType: string;
+  scheduledStartUtc: string;
+  scheduledEndUtc: string;
+  scheduledStartLocal: string;
+  scheduledEndLocal: string;
+  conferenceJoinUrl: string | null;
+  organizationName?: string;
 }

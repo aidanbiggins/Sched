@@ -7,9 +7,9 @@
 // Job Names
 // ============================================
 
-export type JobName = 'notify' | 'sync' | 'webhook' | 'reconcile' | 'capacity';
+export type JobName = 'notify' | 'sync' | 'webhook' | 'reconcile' | 'capacity' | 'escalation';
 
-export const JOB_NAMES: JobName[] = ['notify', 'sync', 'webhook', 'reconcile', 'capacity'];
+export const JOB_NAMES: JobName[] = ['notify', 'sync', 'webhook', 'reconcile', 'capacity', 'escalation'];
 
 // ============================================
 // Job Lock

@@ -2,6 +2,21 @@
  * Integration tests for Cancel and Reschedule API endpoints
  */
 
+// Mock config to enable ATS features for tests
+jest.mock('@/lib/config', () => ({
+  isAtsEnabled: jest.fn(() => true),
+  isStandaloneMode: jest.fn(() => false),
+  isEmailEnabled: jest.fn(() => false),
+  getAppConfig: jest.fn(() => ({
+    mode: 'enterprise',
+    atsEnabled: true,
+    atsSyncEnabled: true,
+    atsWebhooksEnabled: true,
+    dbMode: 'memory',
+    emailEnabled: false,
+  })),
+}));
+
 import {
   resetDatabase,
   getSchedulingRequestById,
