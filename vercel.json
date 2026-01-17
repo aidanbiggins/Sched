@@ -1,25 +1,3 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "crons": [
-    {
-      "path": "/api/cron/notify",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/sync",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/webhook",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/reconcile",
-      "schedule": "*/15 * * * *"
-    },
-    {
-      "path": "/api/cron/escalation",
-      "schedule": "0 * * * *"
-    }
-  ]
+  "$schema": "https://openapi.vercel.sh/vercel.json"
 }
